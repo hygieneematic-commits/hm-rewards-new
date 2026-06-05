@@ -1,13 +1,7 @@
 import { useEffect, useState } from "react";
 import {
-  collection,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  updateDoc,
-  setDoc,
-  getDoc,
-  writeBatch,
+  collection, deleteDoc, doc, onSnapshot,
+  updateDoc, setDoc, getDoc, writeBatch
 } from "firebase/firestore";
 import { db } from "./firebase";
 import "./admin.css";
@@ -80,13 +74,7 @@ export default function AdminPanel() {
         const defaults = {
           stampsRequired: 4,
           claimHours: 24,
-          rewardOptions: [
-            "Free Glass Cleaner",
-            "Free Floor Cleaner",
-            "Free Dishwash Combo",
-            "Free Toilet Cleaner",
-            "Flat ₹50 Cashback",
-          ],
+          rewardOptions: ["Free Glass Cleaner", "Free Floor Cleaner", "Free Dishwash Combo", "Free Toilet Cleaner", "Flat ₹50 Cashback"]
         };
         await setDoc(doc(db, "config", "rewards"), defaults);
         setStampsRequired(defaults.stampsRequired);
@@ -99,23 +87,18 @@ export default function AdminPanel() {
 
   useEffect(() => {
     let filtered = [...codes];
-    if (codeFilter === "used") filtered = filtered.filter((c) => c.used);
-    if (codeFilter === "unused") filtered = filtered.filter((c) => !c.used);
-    if (codeFilter === "printed") filtered = filtered.filter((c) => c.printed);
-    if (codeFilter === "unprinted")
-      filtered = filtered.filter((c) => !c.printed);
-    if (codeSearch)
-      filtered = filtered.filter((c) =>
-        c.code?.toLowerCase().includes(codeSearch.toLowerCase())
-      );
+    if (codeFilter === "used") filtered = filtered.filter(c => c.used);
+    if (codeFilter === "unused") filtered = filtered.filter(c => !c.used);
+    if (codeFilter === "printed") filtered = filtered.filter(c => c.printed);
+    if (codeFilter === "unprinted") filtered = filtered.filter(c => !c.printed);
+    if (codeSearch) filtered = filtered.filter(c => c.code?.toLowerCase().includes(codeSearch.toLowerCase()));
     setFilteredCodes(filtered);
   }, [codes, codeFilter, codeSearch]);
 
   useEffect(() => {
-    const filtered = customers.filter(
-      (c) =>
-        c.name?.toLowerCase().includes(customerSearch.toLowerCase()) ||
-        c.mobile?.includes(customerSearch)
+    const filtered = customers.filter(c =>
+      c.name?.toLowerCase().includes(customerSearch.toLowerCase()) ||
+      c.mobile?.includes(customerSearch)
     );
     setFilteredCustomers(filtered);
   }, [customerSearch, customers]);
@@ -129,12 +112,7 @@ export default function AdminPanel() {
         const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
         const num = Math.floor(10000 + Math.random() * 90000);
         const code = `${prefix}${num}`;
-        batch.set(doc(db, "codes", code), {
-          code,
-          used: false,
-          printed: false,
-          createdAt: Date.now(),
-        });
+        batch.set(doc(db, "codes", code), { code, used: false, printed: false, createdAt: Date.now() });
         generated.push(code);
       }
       await batch.commit();
@@ -157,23 +135,14 @@ export default function AdminPanel() {
   const resetReward = async (mobile: string) => {
     try {
       await updateDoc(doc(db, "customers", mobile), {
-        stamps: 0,
-        rewardUnlocked: false,
-        rewardClaimed: false,
-        selectedReward: "",
-        claimStartTime: null,
+        stamps: 0, rewardUnlocked: false, rewardClaimed: false,
+        selectedReward: "", claimStartTime: null,
       });
       showToast("✅ Reward reset");
-    } catch {
-      showToast("❌ Reset failed", "error");
-    }
+    } catch { showToast("❌ Reset failed", "error"); }
   };
 
-  const adjustStamps = async (
-    mobile: string,
-    current: number,
-    delta: number
-  ) => {
+  const adjustStamps = async (mobile: string, current: number, delta: number) => {
     const newVal = Math.max(0, Math.min(stampsRequired, current + delta));
     const unlocked = newVal >= stampsRequired;
     await updateDoc(doc(db, "customers", mobile), {
@@ -192,18 +161,11 @@ export default function AdminPanel() {
 
   const exportCSV = () => {
     const headers = ["Name", "Mobile", "Stamps", "Reward", "Status"];
-    const rows = customers.map((c) => [
-      c.name,
-      c.mobile,
-      c.stamps,
-      c.selectedReward || "-",
-      c.rewardClaimed
-        ? "Claimed"
-        : c.rewardUnlocked
-        ? "Unlocked"
-        : "Collecting",
+    const rows = customers.map(c => [
+      c.name, c.mobile, c.stamps, c.selectedReward || "-",
+      c.rewardClaimed ? "Claimed" : c.rewardUnlocked ? "Unlocked" : "Collecting"
     ]);
-    const csv = [headers, ...rows].map((e) => e.join(",")).join("\n");
+    const csv = [headers, ...rows].map(e => e.join(",")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     a.download = "HM_Customers.csv";
@@ -211,14 +173,8 @@ export default function AdminPanel() {
   };
 
   const exportCodesCSV = () => {
-    const headers = [
-      "Code",
-      "Status",
-      "Printed",
-      "Generated Date",
-      "Used Date",
-    ];
-    const rows = codes.map((c) => [
+    const headers = ["Code", "Status", "Printed", "Generated Date", "Used Date"];
+    const rows = codes.map(c => [
       c.code,
       c.used ? "Used" : "Unused",
       c.printed ? "Printed" : "Not Printed",
@@ -229,17 +185,15 @@ export default function AdminPanel() {
     const summary = [
       ["SUMMARY", "", "", "", ""],
       ["Total Codes", codes.length, "", "", ""],
-      ["Used Codes", codes.filter((c) => c.used).length, "", "", ""],
-      ["Unused Codes", codes.filter((c) => !c.used).length, "", "", ""],
-      ["Printed Codes", codes.filter((c) => c.printed).length, "", "", ""],
-      ["Unprinted Codes", codes.filter((c) => !c.printed).length, "", "", ""],
+      ["Used Codes", codes.filter(c => c.used).length, "", "", ""],
+      ["Unused Codes", codes.filter(c => !c.used).length, "", "", ""],
+      ["Printed Codes", codes.filter(c => c.printed).length, "", "", ""],
+      ["Unprinted Codes", codes.filter(c => !c.printed).length, "", "", ""],
       ["", "", "", "", ""],
       ["--- CODE DETAILS ---", "", "", "", ""],
     ];
 
-    const csv = [...summary, headers, ...rows]
-      .map((e) => e.join(","))
-      .join("\n");
+    const csv = [...summary, headers, ...rows].map(e => e.join(",")).join("\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const today = new Date().toISOString().slice(0, 10);
@@ -251,14 +205,10 @@ export default function AdminPanel() {
     setConfigSaving(true);
     try {
       await setDoc(doc(db, "config", "rewards"), {
-        stampsRequired,
-        claimHours,
-        rewardOptions,
+        stampsRequired, claimHours, rewardOptions
       });
       showToast("✅ Reward config saved!");
-    } catch {
-      showToast("❌ Save failed", "error");
-    }
+    } catch { showToast("❌ Save failed", "error"); }
     setConfigSaving(false);
   };
 
@@ -279,14 +229,14 @@ export default function AdminPanel() {
     setEditingReward(null);
   };
 
-  const totalRewards = customers.filter((c) => c.rewardClaimed).length;
+  const totalRewards = customers.filter(c => c.rewardClaimed).length;
   const totalCodes = codes.length;
-  const usedCodes = codes.filter((c) => c.used).length;
-  const unusedCodes = codes.filter((c) => !c.used).length;
-  const printedCodes = codes.filter((c) => c.printed).length;
+  const usedCodes = codes.filter(c => c.used).length;
+  const unusedCodes = codes.filter(c => !c.used).length;
+  const printedCodes = codes.filter(c => c.printed).length;
 
   const handleLogin = () => {
-    if (password === "HM@2026") {
+    if (password === process.env.REACT_APP_ADMIN_PASSWORD) {
       setIsLoggedIn(true);
     } else {
       showToast("❌ Wrong Password", "error");
@@ -300,17 +250,10 @@ export default function AdminPanel() {
         <div className="loginBox">
           <h1>HM Admin Login</h1>
           <div className="passwordWrapper">
-            <input
-              type={showPassword ? "text" : "password"}
-              placeholder="Enter Admin Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-            />
-            <button
-              className="eyeBtn"
-              onClick={() => setShowPassword(!showPassword)}
-            >
+            <input type={showPassword ? "text" : "password"} placeholder="Enter Admin Password"
+              value={password} onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleLogin()} />
+            <button className="eyeBtn" onClick={() => setShowPassword(!showPassword)}>
               {showPassword ? "🙈" : "👁️"}
             </button>
           </div>
@@ -330,56 +273,27 @@ export default function AdminPanel() {
       </div>
 
       <div className="adminTabs">
-        {(["analytics", "codes", "rewards", "customers"] as Tab[]).map(
-          (tab) => (
-            <button
-              key={tab}
-              className={`tabBtn ${activeTab === tab ? "activeTab" : ""}`}
-              onClick={() => setActiveTab(tab)}
-            >
-              {tab === "analytics"
-                ? "📊 Analytics"
-                : tab === "codes"
-                ? "🎟️ Codes"
-                : tab === "rewards"
-                ? "🎁 Rewards"
-                : "👥 Customers"}
-            </button>
-          )
-        )}
+        {(["analytics", "codes", "rewards", "customers"] as Tab[]).map(tab => (
+          <button key={tab} className={`tabBtn ${activeTab === tab ? "activeTab" : ""}`}
+            onClick={() => setActiveTab(tab)}>
+            {tab === "analytics" ? "📊 Analytics" :
+             tab === "codes" ? "🎟️ Codes" :
+             tab === "rewards" ? "🎁 Rewards" : "👥 Customers"}
+          </button>
+        ))}
       </div>
 
       {activeTab === "analytics" && (
         <div>
           <div className="analyticsGrid">
-            <div className="analyticsCard">
-              <h2>{customers.length}</h2>
-              <p>Total Customers</p>
-            </div>
-            <div className="analyticsCard">
-              <h2>{totalRewards}</h2>
-              <p>Rewards Claimed</p>
-            </div>
-            <div className="analyticsCard">
-              <h2>{totalCodes}</h2>
-              <p>Total Codes</p>
-            </div>
-            <div className="analyticsCard">
-              <h2>{unusedCodes}</h2>
-              <p>Unused Codes</p>
-            </div>
-            <div className="analyticsCard">
-              <h2>{usedCodes}</h2>
-              <p>Used Codes</p>
-            </div>
-            <div className="analyticsCard">
-              <h2>{printedCodes}</h2>
-              <p>Printed Codes</p>
-            </div>
+            <div className="analyticsCard"><h2>{customers.length}</h2><p>Total Customers</p></div>
+            <div className="analyticsCard"><h2>{totalRewards}</h2><p>Rewards Claimed</p></div>
+            <div className="analyticsCard"><h2>{totalCodes}</h2><p>Total Codes</p></div>
+            <div className="analyticsCard"><h2>{unusedCodes}</h2><p>Unused Codes</p></div>
+            <div className="analyticsCard"><h2>{usedCodes}</h2><p>Used Codes</p></div>
+            <div className="analyticsCard"><h2>{printedCodes}</h2><p>Printed Codes</p></div>
           </div>
-          <button className="exportBtn" onClick={exportCSV}>
-            ⬇️ Download Customers CSV
-          </button>
+          <button className="exportBtn" onClick={exportCSV}>⬇️ Download Customers CSV</button>
         </div>
       )}
 
@@ -387,52 +301,29 @@ export default function AdminPanel() {
         <div>
           <div className="generatorBox">
             <h3>Generate Reward Codes</h3>
-            <input
-              type="number"
-              value={codeCount}
-              onChange={(e) => setCodeCount(Number(e.target.value))}
-            />
-            <button className="generateBtn" onClick={generateCodes}>
-              Generate Codes
-            </button>
+            <input type="number" value={codeCount}
+              onChange={(e) => setCodeCount(Number(e.target.value))} />
+            <button className="generateBtn" onClick={generateCodes}>Generate Codes</button>
           </div>
 
           <div className="filterBar">
-            {(
-              ["all", "unused", "used", "printed", "unprinted"] as CodeFilter[]
-            ).map((f) => (
-              <button
-                key={f}
-                className={`filterBtn ${
-                  codeFilter === f ? "activeFilter" : ""
-                }`}
-                onClick={() => setCodeFilter(f)}
-              >
+            {(["all", "unused", "used", "printed", "unprinted"] as CodeFilter[]).map(f => (
+              <button key={f} className={`filterBtn ${codeFilter === f ? "activeFilter" : ""}`}
+                onClick={() => setCodeFilter(f)}>
                 {f.charAt(0).toUpperCase() + f.slice(1)}
-                {f === "all"
-                  ? ` (${totalCodes})`
-                  : f === "used"
-                  ? ` (${usedCodes})`
-                  : f === "unused"
-                  ? ` (${unusedCodes})`
-                  : f === "printed"
-                  ? ` (${printedCodes})`
-                  : ` (${totalCodes - printedCodes})`}
+                {f === "all" ? ` (${totalCodes})` :
+                 f === "used" ? ` (${usedCodes})` :
+                 f === "unused" ? ` (${unusedCodes})` :
+                 f === "printed" ? ` (${printedCodes})` :
+                 ` (${totalCodes - printedCodes})`}
               </button>
             ))}
           </div>
 
-          <button className="exportBtn" onClick={exportCodesCSV}>
-            ⬇️ Download Codes Excel/CSV
-          </button>
+          <button className="exportBtn" onClick={exportCodesCSV}>⬇️ Download Codes Excel/CSV</button>
 
-          <input
-            type="text"
-            placeholder="Search code..."
-            className="searchInput"
-            value={codeSearch}
-            onChange={(e) => setCodeSearch(e.target.value)}
-          />
+          <input type="text" placeholder="Search code..." className="searchInput"
+            value={codeSearch} onChange={(e) => setCodeSearch(e.target.value)} />
 
           <div className="tableWrapper">
             <table>
@@ -446,46 +337,24 @@ export default function AdminPanel() {
                 </tr>
               </thead>
               <tbody>
-                {filteredCodes.map((c) => (
+                {filteredCodes.map(c => (
                   <tr key={c.id}>
+                    <td><strong>{c.code}</strong></td>
                     <td>
-                      <strong>{c.code}</strong>
-                    </td>
-                    <td>
-                      <span
-                        className={`statusBadge ${
-                          c.used ? "usedBadge" : "unusedBadge"
-                        }`}
-                      >
+                      <span className={`statusBadge ${c.used ? "usedBadge" : "unusedBadge"}`}>
                         {c.used ? "🔴 Used" : "🟢 Unused"}
                       </span>
                     </td>
                     <td>
-                      <input
-                        type="checkbox"
-                        checked={c.printed || false}
-                        onChange={() =>
-                          togglePrinted(c.code, c.printed || false)
-                        }
-                        className="printCheckbox"
-                      />
-                      <span className="printLabel">
-                        {c.printed ? " Printed" : " Not Printed"}
-                      </span>
+                      <input type="checkbox" checked={c.printed || false}
+                        onChange={() => togglePrinted(c.code, c.printed || false)}
+                        className="printCheckbox" />
+                      <span className="printLabel">{c.printed ? " Printed" : " Not Printed"}</span>
                     </td>
-                    <td>
-                      {c.createdAt
-                        ? new Date(c.createdAt).toLocaleDateString()
-                        : "-"}
-                    </td>
+                    <td>{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "-"}</td>
                     <td>
                       {!c.used && (
-                        <button
-                          className="deleteBtn"
-                          onClick={() => deleteCode(c.code)}
-                        >
-                          Delete
-                        </button>
+                        <button className="deleteBtn" onClick={() => deleteCode(c.code)}>Delete</button>
                       )}
                     </td>
                   </tr>
@@ -503,40 +372,18 @@ export default function AdminPanel() {
           <div className="configRow">
             <label>Stamps Required for Reward</label>
             <div className="configControl">
-              <button
-                className="adjBtn"
-                onClick={() =>
-                  setStampsRequired(Math.max(1, stampsRequired - 1))
-                }
-              >
-                −
-              </button>
+              <button className="adjBtn" onClick={() => setStampsRequired(Math.max(1, stampsRequired - 1))}>−</button>
               <span className="configVal">{stampsRequired}</span>
-              <button
-                className="adjBtn"
-                onClick={() => setStampsRequired(stampsRequired + 1)}
-              >
-                +
-              </button>
+              <button className="adjBtn" onClick={() => setStampsRequired(stampsRequired + 1)}>+</button>
             </div>
           </div>
 
           <div className="configRow">
             <label>Reward Claim Window (Hours)</label>
             <div className="configControl">
-              <button
-                className="adjBtn"
-                onClick={() => setClaimHours(Math.max(1, claimHours - 1))}
-              >
-                −
-              </button>
+              <button className="adjBtn" onClick={() => setClaimHours(Math.max(1, claimHours - 1))}>−</button>
               <span className="configVal">{claimHours}h</span>
-              <button
-                className="adjBtn"
-                onClick={() => setClaimHours(claimHours + 1)}
-              >
-                +
-              </button>
+              <button className="adjBtn" onClick={() => setClaimHours(claimHours + 1)}>+</button>
             </div>
           </div>
 
@@ -546,65 +393,29 @@ export default function AdminPanel() {
               <div key={i} className="rewardOptionRow">
                 {editingReward === i ? (
                   <>
-                    <input
-                      className="editRewardInput"
-                      value={editRewardVal}
-                      onChange={(e) => setEditRewardVal(e.target.value)}
-                    />
-                    <button
-                      className="saveRewardBtn"
-                      onClick={() => saveEditReward(i)}
-                    >
-                      Save
-                    </button>
-                    <button
-                      className="cancelBtn"
-                      onClick={() => setEditingReward(null)}
-                    >
-                      Cancel
-                    </button>
+                    <input className="editRewardInput" value={editRewardVal}
+                      onChange={(e) => setEditRewardVal(e.target.value)} />
+                    <button className="saveRewardBtn" onClick={() => saveEditReward(i)}>Save</button>
+                    <button className="cancelBtn" onClick={() => setEditingReward(null)}>Cancel</button>
                   </>
                 ) : (
                   <>
                     <span className="rewardOptionText">🎁 {r}</span>
-                    <button
-                      className="editRewardBtn"
-                      onClick={() => {
-                        setEditingReward(i);
-                        setEditRewardVal(r);
-                      }}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="deleteBtn"
-                      onClick={() => deleteReward(i)}
-                    >
-                      Delete
-                    </button>
+                    <button className="editRewardBtn" onClick={() => { setEditingReward(i); setEditRewardVal(r); }}>Edit</button>
+                    <button className="deleteBtn" onClick={() => deleteReward(i)}>Delete</button>
                   </>
                 )}
               </div>
             ))}
             <div className="addRewardRow">
-              <input
-                className="addRewardInput"
-                placeholder="Add new reward option..."
-                value={newReward}
-                onChange={(e) => setNewReward(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addReward()}
-              />
-              <button className="addRewardBtn" onClick={addReward}>
-                + Add
-              </button>
+              <input className="addRewardInput" placeholder="Add new reward option..."
+                value={newReward} onChange={(e) => setNewReward(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addReward()} />
+              <button className="addRewardBtn" onClick={addReward}>+ Add</button>
             </div>
           </div>
 
-          <button
-            className="saveConfigBtn"
-            onClick={saveConfig}
-            disabled={configSaving}
-          >
+          <button className="saveConfigBtn" onClick={saveConfig} disabled={configSaving}>
             {configSaving ? "Saving..." : "💾 Save Configuration"}
           </button>
         </div>
@@ -612,13 +423,9 @@ export default function AdminPanel() {
 
       {activeTab === "customers" && (
         <div>
-          <input
-            type="text"
-            placeholder="Search by name or mobile"
-            className="searchInput"
-            value={customerSearch}
-            onChange={(e) => setCustomerSearch(e.target.value)}
-          />
+          <input type="text" placeholder="Search by name or mobile"
+            className="searchInput" value={customerSearch}
+            onChange={(e) => setCustomerSearch(e.target.value)} />
 
           {customers.length === 0 ? (
             <h2 className="loadingText">No customers yet</h2>
@@ -627,71 +434,32 @@ export default function AdminPanel() {
               <table>
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Mobile</th>
-                    <th>Stamps</th>
-                    <th>Adjust</th>
-                    <th>Reward</th>
-                    <th>Status</th>
-                    <th>Actions</th>
+                    <th>Name</th><th>Mobile</th><th>Stamps</th>
+                    <th>Adjust</th><th>Reward</th><th>Status</th><th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCustomers.map((c) => (
+                  {filteredCustomers.map(c => (
                     <tr key={c.id}>
                       <td>{c.name}</td>
                       <td>{c.mobile}</td>
-                      <td>
-                        {c.stamps}/{stampsRequired}
-                      </td>
+                      <td>{c.stamps}/{stampsRequired}</td>
                       <td>
                         <div className="btnGroup">
-                          <button
-                            className="adjStampBtn"
-                            onClick={() => adjustStamps(c.mobile, c.stamps, -1)}
-                          >
-                            −
-                          </button>
-                          <button
-                            className="adjStampBtn"
-                            onClick={() => adjustStamps(c.mobile, c.stamps, 1)}
-                          >
-                            +
-                          </button>
+                          <button className="adjStampBtn" onClick={() => adjustStamps(c.mobile, c.stamps, -1)}>−</button>
+                          <button className="adjStampBtn" onClick={() => adjustStamps(c.mobile, c.stamps, 1)}>+</button>
                         </div>
                       </td>
                       <td>{c.selectedReward || "-"}</td>
                       <td>
-                        <span
-                          className={`statusBadge ${
-                            c.rewardClaimed
-                              ? "usedBadge"
-                              : c.rewardUnlocked
-                              ? "unlockedBadge"
-                              : "unusedBadge"
-                          }`}
-                        >
-                          {c.rewardClaimed
-                            ? "Claimed"
-                            : c.rewardUnlocked
-                            ? "Unlocked"
-                            : "Collecting"}
+                        <span className={`statusBadge ${c.rewardClaimed ? "usedBadge" : c.rewardUnlocked ? "unlockedBadge" : "unusedBadge"}`}>
+                          {c.rewardClaimed ? "Claimed" : c.rewardUnlocked ? "Unlocked" : "Collecting"}
                         </span>
                       </td>
                       <td>
                         <div className="btnGroup">
-                          <button
-                            className="resetBtn"
-                            onClick={() => resetReward(c.mobile)}
-                          >
-                            Reset
-                          </button>
-                          <button
-                            className="deleteBtn"
-                            onClick={() => deleteCustomer(c.mobile)}
-                          >
-                            Delete
-                          </button>
+                          <button className="resetBtn" onClick={() => resetReward(c.mobile)}>Reset</button>
+                          <button className="deleteBtn" onClick={() => deleteCustomer(c.mobile)}>Delete</button>
                         </div>
                       </td>
                     </tr>
