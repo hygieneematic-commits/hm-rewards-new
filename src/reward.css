@@ -588,7 +588,7 @@ body {
   border: 3px solid #fcd34d;
 }
 
-/* â”€â”€â”€ MOBILE RESPONSIVE (â‰¤768px) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ─── MOBILE RESPONSIVE (≤768px) ─────────────────────────────────────── */
 
 @media (max-width: 768px) {
   /* HEADER */
@@ -893,4 +893,154 @@ body {
     font-size: 13px;
     padding: 12px 20px;
   }
+}
+
+/* CLAIM DISCLAIMER */
+.claimDisclaimer {
+  background: #fff7ed;
+  border: 2px solid #fed7aa;
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #92400e;
+  text-align: left;
+}
+
+/* VERIFY BUTTON LOADING */
+.inputCard button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .claimDisclaimer {
+    font-size: 13px;
+    padding: 14px;
+  }
+}
+
+/* SUCCESS POPUP */
+.successPopup {
+  position: relative;
+  text-align: center;
+}
+
+.successIcon {
+  font-size: 64px;
+  margin-bottom: 16px;
+}
+
+.popupClose {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: #f1f5f9;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 16px;
+  cursor: pointer;
+  color: #64748b;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.popupClose:hover {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.successDisclaimer {
+  margin-top: 16px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.closeSuccessBtn {
+  width: 100%;
+  height: 54px;
+  border: none;
+  border-radius: 14px;
+  background: #0e7490;
+  color: white;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: background 0.2s;
+}
+
+.closeSuccessBtn:hover {
+  background: #0c6580;
+}
+
+@media (max-width: 768px) {
+  .successIcon {
+    font-size: 48px;
+  }
+  .closeSuccessBtn {
+    height: 48px;
+    font-size: 16px;
+  }
+}
+
+/* CLEAN SUCCESS POPUP */
+.successPopup {
+  max-width: 340px !important;
+  padding: 36px 28px 32px !important;
+  text-align: center;
+  position: relative;
+}
+
+.successPopup .successIcon {
+  font-size: 52px;
+  margin-bottom: 12px;
+}
+
+.successPopup h2 {
+  font-size: 22px !important;
+  color: #0e7490;
+  margin-bottom: 8px;
+}
+
+.successPopup h3 {
+  font-size: 18px !important;
+  color: #334155;
+  font-weight: 600;
+}
+
+.successPopup .popupClose {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  background: #f1f5f9;
+  border: none;
+  border-radius: 50%;
+  font-size: 14px;
+  cursor: pointer;
+  color: #64748b;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.successPopup .popupClose:hover {
+  background: #e2e8f0;
+}
+.rewardUnlockedTag {
+  color: #0e7490;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
 }
