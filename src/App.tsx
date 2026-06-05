@@ -8,7 +8,14 @@ import { useEffect, useState } from "react";
 
 import { db } from "./firebase";
 
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  collection,
+  addDoc,
+} from "firebase/firestore";
 
 export default function App() {
   const [name, setName] = useState("");
@@ -20,6 +27,11 @@ export default function App() {
   const [stamps, setStamps] = useState(0);
 
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showCountdownPopup, setShowCountdownPopup] = useState(false);
+  const [showExpiredPopup, setShowExpiredPopup] = useState(false);
+  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+  const [claimedRewardName, setClaimedRewardName] = useState("");
 
   const [rewardUnlocked, setRewardUnlocked] = useState(false);
 
@@ -75,7 +87,8 @@ export default function App() {
     const fetchCustomer = async () => {
       if (mobile.length < 10) return;
 
-      const customerRef = doc(db, "customers", mobile);
+      const normalizedMobile = normalizeMobile(mobile);
+      const customerRef = doc(db, "customers", normalizedMobile);
 
       const customerSnap = await getDoc(customerRef);
 
@@ -84,27 +97,41 @@ export default function App() {
 
         setStamps(data.stamps || 0);
 
-        if (data.rewardUnlocked) {
-          setRewardUnlocked(true);
-
-          if (!data.rewardClaimed) {
-            setShowRewardPopup(true);
-          }
-        }
-
         if (data.selectedReward) {
           setSelectedReward(data.selectedReward);
         }
 
-        if (data.claimStartTime) {
-          const diff =
-            claimSeconds -
-            Math.floor((Date.now() - data.claimStartTime) / 1000);
+        if (data.rewardUnlocked && !data.rewardClaimed) {
+          // CHECK IF TIMER ALREADY EXPIRED
+          if (data.claimStartTime) {
+            const diff =
+              claimSeconds -
+              Math.floor((Date.now() - data.claimStartTime) / 1000);
 
-          if (diff > 0) {
-            setClaimStarted(true);
-
-            setTimeLeft(diff);
+            if (diff <= 0) {
+              // EXPIRED — write to Firebase and show expired popup
+              await updateDoc(customerRef, {
+                rewardUnlocked: false,
+                rewardClaimed: false,
+                rewardExpired: true,
+                stamps: 0,
+                selectedReward: "",
+                claimStartTime: null,
+              });
+              setStamps(0);
+              setRewardUnlocked(false);
+              setShowExpiredPopup(true);
+              return;
+            } else {
+              // STILL VALID
+              setRewardUnlocked(true);
+              setClaimStarted(true);
+              setTimeLeft(diff);
+              setShowCountdownPopup(true);
+            }
+          } else {
+            setRewardUnlocked(true);
+            setShowCountdownPopup(true);
           }
         }
       }
@@ -124,14 +151,26 @@ export default function App() {
       }, 1000);
     }
 
-    if (timeLeft <= 0) {
+    if (timeLeft <= 0 && claimStarted) {
       setRewardUnlocked(false);
-
-      setShowRewardPopup(false);
-
       setClaimStarted(false);
+      setShowCountdownPopup(false);
+      setShowExpiredPopup(true);
 
-      setMessage("⌛ Reward claim expired");
+      // WRITE EXPIRY TO FIREBASE
+      const normalizedMobile = normalizeMobile(mobile);
+      if (normalizedMobile.length === 10) {
+        const customerRef = doc(db, "customers", normalizedMobile);
+        updateDoc(customerRef, {
+          rewardUnlocked: false,
+          rewardClaimed: false,
+          rewardExpired: true,
+          stamps: 0,
+          selectedReward: "",
+          claimStartTime: null,
+        });
+        setStamps(0);
+      }
     }
 
     return () => clearInterval(timer);
@@ -139,10 +178,24 @@ export default function App() {
 
   // SUBMIT
 
+  // MOBILE VALIDATION - strict 10 digits
+  const validateMobile = (num: string): boolean => {
+    return /^[6-9][0-9]{9}$/.test(num.trim());
+  };
+
+  const normalizeMobile = (num: string): string => {
+    return num.trim();
+  };
+
   const handleSubmit = async () => {
     if (!name || !mobile || !code) {
-      setMessage("Please fill all details");
+      setMessage("⚠️ Please fill all details");
+      return;
+    }
+    setLoading(true);
 
+    if (mobile.length !== 10 || !validateMobile(mobile)) {
+      setMessage("⚠️ Enter valid 10-digit mobile number starting with 6-9");
       return;
     }
 
@@ -181,7 +234,8 @@ export default function App() {
 
       // CUSTOMER
 
-      const customerRef = doc(db, "customers", mobile);
+      const normalizedMobile = normalizeMobile(mobile);
+      const customerRef = doc(db, "customers", normalizedMobile);
 
       const customerSnap = await getDoc(customerRef);
 
@@ -235,7 +289,7 @@ export default function App() {
       if (unlocked) {
         setRewardUnlocked(true);
 
-        setShowRewardPopup(true);
+        setShowCountdownPopup(true);
 
         setSelectedReward(randomReward);
 
@@ -249,12 +303,12 @@ export default function App() {
       }
 
       // CLEAR CODE
-
       setCode("");
     } catch (err) {
       console.log(err);
-
       setMessage("Something went wrong");
+    } finally {
+      setLoading(false);
     }
   };
   return (
@@ -325,9 +379,15 @@ export default function App() {
 
           <input
             type="tel"
-            placeholder="Enter Mobile Number"
+            placeholder="Enter 10-digit Mobile Number"
             value={mobile}
-            onChange={(e) => setMobile(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 10);
+              setMobile(val);
+            }}
+            maxLength={10}
+            inputMode="numeric"
+            pattern="[0-9]{10}"
           />
 
           <input
@@ -337,7 +397,9 @@ export default function App() {
             onChange={(e) => setCode(e.target.value)}
           />
 
-          <button onClick={handleSubmit}>Verify & Collect Reward</button>
+          <button onClick={handleSubmit} disabled={loading}>
+            {loading ? "⌛ Verifying..." : "Verify & Collect Reward"}
+          </button>
 
           <small>One reward scan valid per combo pack only.</small>
         </section>
@@ -556,64 +618,143 @@ export default function App() {
           <span>©️ 2026 Hygiene Matic. All Rights Reserved.</span>
         </footer>
 
-        {/* POPUP */}
-
+        {/* POPUP 1 — REWARD UNLOCKED */}
         {showRewardPopup && (
           <div className="popupOverlay">
             <div className="popup">
               <h2>🎉 Reward Unlocked</h2>
-
               <h3>{selectedReward}</h3>
-
               <p>
-                Claim within 24 hours from the same retailer where you purchased
-                Hygiene Matic products.
+                You have collected all your stamps! Click below to proceed to
+                claim your reward.
               </p>
+              <button
+                onClick={() => {
+                  setShowCountdownPopup(true);
+                }}
+              >
+                Claim Reward
+              </button>
+            </div>
+          </div>
+        )}
 
+        {/* POPUP 2 — 24HR COUNTDOWN */}
+        {showCountdownPopup && (
+          <div className="popupOverlay">
+            <div className="popup">
+              <p className="rewardUnlockedTag">🎉 Reward Unlocked</p>
+              <h2>⏰ Claim Your Reward</h2>
+              <h3>{selectedReward}</h3>
+              <p>
+                Claim within {Math.floor(claimSeconds / 3600)}h from the same
+                retailer where you purchased Hygiene Matic products.
+              </p>
               <div className="timer">
                 ⏰ {Math.floor(timeLeft / 3600)}h :
                 {Math.floor((timeLeft % 3600) / 60)}m :{timeLeft % 60}s
               </div>
-
+              <div className="claimDisclaimer">
+                ⚠️ <strong>How to Claim:</strong> Press "Claim Reward"{" "}
+                <strong>in front of the shopkeeper</strong>. Once claimed, show
+                the confirmation screen to the shopkeeper and collect your free
+                gift.{" "}
+                <strong>
+                  This action cannot be reversed — claim only when you are at
+                  the shop.
+                </strong>
+              </div>
               <button
                 onClick={async () => {
                   try {
                     const customerRef = doc(db, "customers", mobile);
 
+                    // SAVE REWARD HISTORY
+                    await addDoc(collection(db, "rewardHistory"), {
+                      customerName: name,
+                      mobile: normalizeMobile(mobile),
+                      reward: selectedReward,
+                      claimedAt: Date.now(),
+                      claimedAtFormatted: new Date().toLocaleString("en-IN"),
+                    });
+
+                    // UPDATE CUSTOMER
+                    const custSnap = await getDoc(customerRef);
+                    const prevTotal = custSnap.exists()
+                      ? custSnap.data().totalRewardsWon || 0
+                      : 0;
+
                     await updateDoc(customerRef, {
                       stamps: 0,
-
                       rewardUnlocked: false,
-
                       rewardClaimed: true,
-
                       selectedReward: "",
-
                       claimStartTime: null,
+                      totalRewardsWon: prevTotal + 1,
+                      lastRewardClaimed: selectedReward,
+                      lastClaimedAt: Date.now(),
                     });
 
                     setRewardUnlocked(false);
-
-                    setShowRewardPopup(false);
-
+                    setShowCountdownPopup(false);
                     setClaimStarted(false);
-
+                    setClaimedRewardName(selectedReward);
                     setSelectedReward("");
-
                     setStamps(0);
-
                     setTimeLeft(claimSeconds);
-
-                    setMessage("✅ Reward Claimed Successfully");
+                    setShowSuccessPopup(true);
                   } catch (error) {
                     console.log(error);
-
                     setMessage("Something went wrong");
                   }
                 }}
               >
                 Claim Reward
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* POPUP — EXPIRED */}
+        {showExpiredPopup && (
+          <div className="popupOverlay">
+            <div className="popup successPopup">
+              <button
+                className="popupClose"
+                onClick={() => setShowExpiredPopup(false)}
+              >
+                ✕
+              </button>
+              <div className="successIcon">⏰</div>
+              <h2 style={{ color: "#dc2626" }}>Reward Expired</h2>
+              <p
+                style={{
+                  color: "#64748b",
+                  fontSize: "16px",
+                  marginTop: "12px",
+                  lineHeight: "1.6",
+                }}
+              >
+                You missed the reward claim window. Better luck next time!
+                Complete a new stamp cycle to earn your next reward.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* POPUP 3 — SUCCESS */}
+        {showSuccessPopup && (
+          <div className="popupOverlay">
+            <div className="popup successPopup">
+              <button
+                className="popupClose"
+                onClick={() => setShowSuccessPopup(false)}
+              >
+                ✕
+              </button>
+              <div className="successIcon">🎉</div>
+              <h2>Reward Successfully Claimed!</h2>
+              <h3>{claimedRewardName}</h3>
             </div>
           </div>
         )}
