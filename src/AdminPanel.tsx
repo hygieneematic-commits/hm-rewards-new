@@ -8,6 +8,7 @@ import {
   setDoc,
   getDoc,
   writeBatch,
+  addDoc,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import "./admin.css";
@@ -26,6 +27,9 @@ export default function AdminPanel() {
   const [codeSearch, setCodeSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [historySearch, setHistorySearch] = useState("");
+  const [selectedHistory, setSelectedHistory] = useState<string[]>([]);
+  const [historyRewardFilter, setHistoryRewardFilter] = useState("all");
+  const [historyDateFilter, setHistoryDateFilter] = useState("all");
   const [codeCount, setCodeCount] = useState(10);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [password, setPassword] = useState("");
@@ -35,7 +39,6 @@ export default function AdminPanel() {
   const [now, setNow] = useState(Date.now());
 
   // REWARD CONFIG
-  const [stampsRequired, setStampsRequired] = useState(4);
   const [claimHours, setClaimHours] = useState(24);
   const [rewardOptions, setRewardOptions] = useState<string[]>([]);
   const [newReward, setNewReward] = useState("");
@@ -43,13 +46,140 @@ export default function AdminPanel() {
   const [editRewardVal, setEditRewardVal] = useState("");
   const [configSaving, setConfigSaving] = useState(false);
 
+  // CONFIRM DIALOG state (for Reset Timer + Block)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({ open: false, title: "", message: "", onConfirm: () => {} });
+
+  // HISTORY MODAL
+  const [historyModal, setHistoryModal] = useState<{
+    open: boolean;
+    customer: any | null;
+  }>({ open: false, customer: null });
+
+  // MULTI-SELECT — Codes table
+  const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
+
+  // MULTI-SELECT — Customers table
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
+
   const showToast = (msg: string, type = "success") => {
     setToast(msg);
     setToastType(type);
     setTimeout(() => setToast(""), 3500);
   };
 
-  // LIVE CLOCK - updates every second for countdown timers
+  const openConfirm = (
+    title: string,
+    message: string,
+    onConfirm: () => void
+  ) => {
+    setConfirmDialog({ open: true, title, message, onConfirm });
+  };
+  const closeConfirm = () =>
+    setConfirmDialog({
+      open: false,
+      title: "",
+      message: "",
+      onConfirm: () => {},
+    });
+
+  // ── MULTI-SELECT HELPERS ─────────────────────────────────────────────────────
+
+  const toggleSelectCode = (id: string) =>
+    setSelectedCodes((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+
+  const toggleSelectAllCodes = (filtered: any[]) => {
+    if (selectedCodes.length === filtered.length && filtered.length > 0) {
+      setSelectedCodes([]);
+    } else {
+      setSelectedCodes(filtered.map((c) => c.id));
+    }
+  };
+
+  const toggleSelectCustomer = (id: string) =>
+    setSelectedCustomers((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+
+  const toggleSelectAllCustomers = (filtered: any[]) => {
+    if (selectedCustomers.length === filtered.length && filtered.length > 0) {
+      setSelectedCustomers([]);
+    } else {
+      setSelectedCustomers(filtered.map((c) => c.id));
+    }
+  };
+
+  // ── BULK ACTIONS ─────────────────────────────────────────────────────────────
+
+  const deleteSelectedCodes = async () => {
+    try {
+      const batchSize = 500;
+      for (let i = 0; i < selectedCodes.length; i += batchSize) {
+        const b = writeBatch(db);
+        selectedCodes
+          .slice(i, i + batchSize)
+          .forEach((id) => b.delete(doc(db, "codes", id)));
+        await b.commit();
+      }
+      showToast(`${selectedCodes.length} codes deleted`);
+      setSelectedCodes([]);
+    } catch {
+      showToast("Bulk delete failed", "error");
+    }
+  };
+
+  const deleteSelectedCustomers = async () => {
+    try {
+      const batchSize = 500;
+      for (let i = 0; i < selectedCustomers.length; i += batchSize) {
+        const b = writeBatch(db);
+        selectedCustomers
+          .slice(i, i + batchSize)
+          .forEach((id) => b.delete(doc(db, "customers", id)));
+        await b.commit();
+      }
+      showToast(`${selectedCustomers.length} customers deleted`);
+      setSelectedCustomers([]);
+    } catch {
+      showToast("Bulk delete failed", "error");
+    }
+  };
+
+  const blockSelectedCustomers = async () => {
+    try {
+      const b = writeBatch(db);
+      selectedCustomers.forEach((id) =>
+        b.update(doc(db, "customers", id), { blocked: true })
+      );
+      await b.commit();
+      showToast(`${selectedCustomers.length} customers blocked`);
+      setSelectedCustomers([]);
+    } catch {
+      showToast("Bulk block failed", "error");
+    }
+  };
+
+  const unblockSelectedCustomers = async () => {
+    try {
+      const b = writeBatch(db);
+      selectedCustomers.forEach((id) =>
+        b.update(doc(db, "customers", id), { blocked: false })
+      );
+      await b.commit();
+      showToast(`${selectedCustomers.length} customers unblocked`);
+      setSelectedCustomers([]);
+    } catch {
+      showToast("Bulk unblock failed", "error");
+    }
+  };
+
+  // LIVE CLOCK
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
@@ -97,12 +227,10 @@ export default function AdminPanel() {
       const snap = await getDoc(doc(db, "config", "rewards"));
       if (snap.exists()) {
         const data = snap.data();
-        setStampsRequired(data.stampsRequired || 4);
         setClaimHours(data.claimHours || 24);
         setRewardOptions(data.rewardOptions || []);
       } else {
         const defaults = {
-          stampsRequired: 4,
           claimHours: 24,
           rewardOptions: [
             "Free Glass Cleaner",
@@ -113,7 +241,6 @@ export default function AdminPanel() {
           ],
         };
         await setDoc(doc(db, "config", "rewards"), defaults);
-        setStampsRequired(defaults.stampsRequired);
         setClaimHours(defaults.claimHours);
         setRewardOptions(defaults.rewardOptions);
       }
@@ -146,31 +273,41 @@ export default function AdminPanel() {
     setFilteredCustomers(filtered);
   }, [customerSearch, customers]);
 
-  // COUNTDOWN HELPER
+  // ── HELPERS ─────────────────────────────────────────────────────────────────
+
+  // Countdown timer display
   const getCountdown = (claimStartTime: number) => {
     const claimSeconds = claimHours * 3600;
     const elapsed = Math.floor((now - claimStartTime) / 1000);
     const left = claimSeconds - elapsed;
-    if (left <= 0) return { text: "🔴 EXPIRED", expired: true, warning: false };
+    if (left <= 0) return { text: "EXPIRED", expired: true, warning: false };
     const h = Math.floor(left / 3600);
     const m = Math.floor((left % 3600) / 60);
     const s = left % 60;
-    return {
-      text: `${h}h ${m}m ${s}s`,
-      expired: false,
-      warning: left < 3600,
-    };
+    return { text: `${h}h ${m}m ${s}s`, expired: false, warning: left < 3600 };
   };
 
-  // GENERATE CODES
+  // Total wins from rewardHistory records (source of truth)
+  const getCustomerWins = (mobile: string) =>
+    rewardHistory.filter((h) => h.mobile === mobile).length;
+
+  // ── ACTIONS ─────────────────────────────────────────────────────────────────
+
+  // OPTION B — secure code generation: PREFIX + 5 digits + hyphen + 3 alphanumeric
   const generateCodes = async () => {
     try {
       const prefixes = ["HM", "DW", "FL", "PC"];
+      // No O, 0, 1, I to avoid visual confusion when printed
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
       const batch = writeBatch(db);
       for (let i = 0; i < codeCount; i++) {
         const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
         const num = Math.floor(10000 + Math.random() * 90000);
-        const code = `${prefix}${num}`;
+        const suffix = Array.from(
+          { length: 3 },
+          () => chars[Math.floor(Math.random() * chars.length)]
+        ).join("");
+        const code = `${prefix}${num}-${suffix}`;
         batch.set(doc(db, "codes", code), {
           code,
           used: false,
@@ -179,9 +316,9 @@ export default function AdminPanel() {
         });
       }
       await batch.commit();
-      showToast(`🎉 ${codeCount} codes generated!`);
+      showToast(`${codeCount} codes generated successfully`);
     } catch {
-      showToast("❌ Failed to generate codes", "error");
+      showToast("Failed to generate codes", "error");
     }
   };
 
@@ -192,65 +329,82 @@ export default function AdminPanel() {
   const deleteCode = async (code: string) => {
     if (!window.confirm(`Delete code ${code}?`)) return;
     await deleteDoc(doc(db, "codes", code));
-    showToast("✅ Code deleted");
+    showToast("Code deleted");
   };
 
-  const resetReward = async (mobile: string) => {
+  // RESET TIMER — clears only timer/reward state, keeps history intact
+  const resetTimer = async (mobile: string, name: string) => {
     try {
       await updateDoc(doc(db, "customers", mobile), {
-        stamps: 0,
         rewardUnlocked: false,
         rewardClaimed: false,
+        rewardExpired: false,
         selectedReward: "",
         claimStartTime: null,
       });
-      showToast("✅ Reward reset");
+      // Optional admin activity log
+      await addDoc(collection(db, "adminLogs"), {
+        action: "RESET_TIMER",
+        customerMobile: mobile,
+        customerName: name,
+        performedAt: Date.now(),
+        performedAtFormatted: new Date().toLocaleString("en-IN"),
+      });
+      showToast(`Timer reset for ${name}`);
     } catch {
-      showToast("❌ Reset failed", "error");
+      showToast("Reset failed", "error");
     }
   };
 
-  const adjustStamps = async (
-    mobile: string,
-    current: number,
-    delta: number
-  ) => {
-    const newVal = Math.max(0, Math.min(stampsRequired, current + delta));
-    const unlocked = newVal >= stampsRequired;
-    await updateDoc(doc(db, "customers", mobile), {
-      stamps: newVal,
-      rewardUnlocked: unlocked,
-      claimStartTime: unlocked ? Date.now() : null,
-    });
-    showToast(`✅ Stamps updated to ${newVal}`);
+  // BLOCK CUSTOMER
+  const blockCustomer = async (mobile: string, name: string) => {
+    try {
+      await updateDoc(doc(db, "customers", mobile), { blocked: true });
+      await addDoc(collection(db, "adminLogs"), {
+        action: "BLOCK_CUSTOMER",
+        customerMobile: mobile,
+        customerName: name,
+        performedAt: Date.now(),
+        performedAtFormatted: new Date().toLocaleString("en-IN"),
+      });
+      showToast(`${name} has been blocked`);
+    } catch {
+      showToast("Block failed", "error");
+    }
+  };
+
+  // UNBLOCK CUSTOMER
+  const unblockCustomer = async (mobile: string, name: string) => {
+    try {
+      await updateDoc(doc(db, "customers", mobile), { blocked: false });
+      await addDoc(collection(db, "adminLogs"), {
+        action: "UNBLOCK_CUSTOMER",
+        customerMobile: mobile,
+        customerName: name,
+        performedAt: Date.now(),
+        performedAtFormatted: new Date().toLocaleString("en-IN"),
+      });
+      showToast(`${name} has been unblocked`);
+    } catch {
+      showToast("Unblock failed", "error");
+    }
   };
 
   const deleteCustomer = async (mobile: string) => {
-    if (!window.confirm("Delete this customer?")) return;
+    if (!window.confirm("Delete this customer permanently?")) return;
     await deleteDoc(doc(db, "customers", mobile));
-    showToast("✅ Customer deleted");
+    showToast("Customer deleted");
   };
 
+  // EXPORT CSV — updated: no stamps, uses history-based win count
   const exportCSV = () => {
-    const headers = [
-      "Name",
-      "Mobile",
-      "Stamps",
-      "Reward",
-      "Status",
-      "Total Rewards Won",
-    ];
+    const headers = ["Name", "Mobile", "Total Wins", "Last Reward", "Blocked"];
     const rows = customers.map((c) => [
       c.name,
       c.mobile,
-      c.stamps,
-      c.selectedReward || "-",
-      c.rewardClaimed
-        ? "Claimed"
-        : c.rewardUnlocked
-        ? "Unlocked"
-        : "Collecting",
-      c.totalRewardsWon || 0,
+      getCustomerWins(c.mobile),
+      c.lastRewardClaimed || "-",
+      c.blocked ? "Yes" : "No",
     ]);
     const csv = [headers, ...rows].map((e) => e.join(",")).join("\n");
     const a = document.createElement("a");
@@ -294,18 +448,15 @@ export default function AdminPanel() {
     const toDelete = codes.filter(
       (c) => c.used && c.createdAt && c.createdAt < cutoff
     );
-
     if (toDelete.length === 0) {
-      showToast(`⚠️ No used codes older than ${cleanDays} days found`, "error");
+      showToast(`No used codes older than ${cleanDays} days found`, "error");
       return;
     }
-
     const confirmed = window.confirm(
       `This will:\n1. Download a CSV backup of ${toDelete.length} used codes\n2. Permanently delete them from Firebase\n\nProceed?`
     );
     if (!confirmed) return;
 
-    // STEP 1 — Export CSV backup first
     const summary = [
       ["ARCHIVE BACKUP", "", "", ""],
       [`Deleted on`, new Date().toLocaleDateString("en-IN"), "", ""],
@@ -328,7 +479,6 @@ export default function AdminPanel() {
     a.download = `HM_ArchivedCodes_${today}.csv`;
     a.click();
 
-    // STEP 2 — Delete from Firebase in batches of 500
     setCleaning(true);
     try {
       const batchSize = 500;
@@ -339,9 +489,9 @@ export default function AdminPanel() {
         });
         await batch.commit();
       }
-      showToast(`✅ ${toDelete.length} used codes archived & deleted!`);
+      showToast(`${toDelete.length} used codes archived & deleted`);
     } catch {
-      showToast("❌ Delete failed — but CSV backup was downloaded", "error");
+      showToast("Delete failed — CSV backup was downloaded", "error");
     }
     setCleaning(false);
   };
@@ -361,17 +511,43 @@ export default function AdminPanel() {
     a.click();
   };
 
+  const deleteHistoryRecords = async () => {
+    if (selectedHistory.length === 0) return;
+    if (!window.confirm(`Delete ${selectedHistory.length} selected record(s)?`))
+      return;
+    try {
+      const batch = writeBatch(db);
+      selectedHistory.forEach((id) =>
+        batch.delete(doc(db, "rewardHistory", id))
+      );
+      await batch.commit();
+      setSelectedHistory([]);
+      showToast(`${selectedHistory.length} records deleted`);
+    } catch {
+      showToast("Delete failed", "error");
+    }
+  };
+
+  const toggleSelectHistory = (id: string) =>
+    setSelectedHistory((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+
+  const toggleSelectAll = () => {
+    if (selectedHistory.length === filteredHistory.length) {
+      setSelectedHistory([]);
+    } else {
+      setSelectedHistory(filteredHistory.map((h) => h.id));
+    }
+  };
+
   const saveConfig = async () => {
     setConfigSaving(true);
     try {
-      await setDoc(doc(db, "config", "rewards"), {
-        stampsRequired,
-        claimHours,
-        rewardOptions,
-      });
-      showToast("✅ Config saved!");
+      await setDoc(doc(db, "config", "rewards"), { claimHours, rewardOptions });
+      showToast("Configuration saved");
     } catch {
-      showToast("❌ Save failed", "error");
+      showToast("Save failed", "error");
     }
     setConfigSaving(false);
   };
@@ -392,37 +568,57 @@ export default function AdminPanel() {
     setEditingReward(null);
   };
 
-  // ANALYTICS
-  const totalRewards = customers.filter((c) => c.rewardClaimed).length;
+  // ── COMPUTED VALUES ──────────────────────────────────────────────────────────
+  const totalRewards = rewardHistory.length;
   const activeTimers = customers.filter(
     (c) => c.rewardUnlocked && !c.rewardClaimed
   );
+  const blockedCount = customers.filter((c) => c.blocked).length;
   const totalCodes = codes.length;
   const usedCodes = codes.filter((c) => c.used).length;
   const unusedCodes = codes.filter((c) => !c.used).length;
   const printedCodes = codes.filter((c) => c.printed).length;
 
-  const filteredHistory = rewardHistory.filter(
-    (h) =>
+  const filteredHistory = rewardHistory.filter((h) => {
+    const matchSearch =
+      !historySearch ||
       h.customerName?.toLowerCase().includes(historySearch.toLowerCase()) ||
       h.mobile?.includes(historySearch) ||
-      h.reward?.toLowerCase().includes(historySearch.toLowerCase())
-  );
+      h.reward?.toLowerCase().includes(historySearch.toLowerCase());
+    const matchReward =
+      historyRewardFilter === "all" ||
+      h.reward?.toLowerCase().includes(historyRewardFilter.toLowerCase());
+    const nowTs = Date.now();
+    const claimedAt = h.claimedAt || 0;
+    const matchDate =
+      historyDateFilter === "all"
+        ? true
+        : historyDateFilter === "today"
+        ? new Date(claimedAt).toDateString() === new Date().toDateString()
+        : historyDateFilter === "week"
+        ? nowTs - claimedAt < 7 * 86400000
+        : historyDateFilter === "month"
+        ? nowTs - claimedAt < 30 * 86400000
+        : true;
+    return matchSearch && matchReward && matchDate;
+  });
 
   const handleLogin = () => {
     if (password === process.env.REACT_APP_ADMIN_PASSWORD) {
       setIsLoggedIn(true);
     } else {
-      showToast("❌ Wrong Password", "error");
+      showToast("Wrong Password", "error");
     }
   };
 
+  // ── LOGIN SCREEN ─────────────────────────────────────────────────────────────
   if (!isLoggedIn) {
     return (
       <div className="loginPage">
         {toast && <div className={`adminToast ${toastType}`}>{toast}</div>}
         <div className="loginBox">
-          <h1>HM Admin Login</h1>
+          <h1>Hygiene Matic Admin</h1>
+          <p>Rewards Hub — Control Panel</p>
           <div className="passwordWrapper">
             <input
               type={showPassword ? "text" : "password"}
@@ -444,13 +640,92 @@ export default function AdminPanel() {
     );
   }
 
+  // ── MAIN PANEL ───────────────────────────────────────────────────────────────
   return (
     <div className="adminPage">
       {toast && <div className={`adminToast ${toastType}`}>{toast}</div>}
 
+      {/* CONFIRM DIALOG */}
+      {confirmDialog.open && (
+        <div className="adminOverlay">
+          <div className="adminConfirmBox">
+            <h3 className="adminConfirmTitle">{confirmDialog.title}</h3>
+            <p className="adminConfirmMsg">{confirmDialog.message}</p>
+            <div className="adminConfirmBtns">
+              <button className="adminConfirmCancel" onClick={closeConfirm}>
+                Cancel
+              </button>
+              <button
+                className="adminConfirmOk"
+                onClick={() => {
+                  confirmDialog.onConfirm();
+                  closeConfirm();
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HISTORY MODAL */}
+      {historyModal.open && historyModal.customer && (
+        <div className="adminOverlay">
+          <div className="adminHistoryModal">
+            <div className="adminHistoryModalHeader">
+              <div>
+                <h3>{historyModal.customer.name}</h3>
+                <span>{historyModal.customer.mobile}</span>
+              </div>
+              <button
+                className="adminModalClose"
+                onClick={() => setHistoryModal({ open: false, customer: null })}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="adminHistoryModalBody">
+              {rewardHistory.filter(
+                (h) => h.mobile === historyModal.customer.mobile
+              ).length === 0 ? (
+                <p className="adminHistoryEmpty">
+                  No reward history for this customer.
+                </p>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Reward</th>
+                      <th>Claimed At</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rewardHistory
+                      .filter((h) => h.mobile === historyModal.customer.mobile)
+                      .map((h, i) => (
+                        <tr key={h.id}>
+                          <td>{i + 1}</td>
+                          <td>{h.reward}</td>
+                          <td>{h.claimedAtFormatted || "-"}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HEADER */}
       <div className="adminHeader">
-        <h1>HM Admin Dashboard</h1>
-        <p>Manage rewards, customers & analytics</p>
+        <div className="adminHeaderText">
+          <h1>Hygiene Matic Admin</h1>
+          <p>Rewards Hub — Control Panel</p>
+        </div>
+        <div className="adminHeaderBadge">Live Dashboard</div>
       </div>
 
       {/* TABS */}
@@ -464,27 +739,25 @@ export default function AdminPanel() {
             onClick={() => setActiveTab(tab)}
           >
             {tab === "analytics"
-              ? "📊 Analytics"
+              ? "Analytics"
               : tab === "codes"
-              ? "🎟️ Codes"
+              ? "Codes"
               : tab === "rewards"
-              ? "🎁 Rewards"
+              ? "Rewards Config"
               : tab === "customers"
-              ? "👥 Customers"
-              : "📋 History"}
+              ? "Customers"
+              : "History"}
             {tab === "history" && rewardHistory.length > 0 && (
               <span className="tabBadge">{rewardHistory.length}</span>
             )}
             {tab === "customers" && activeTimers.length > 0 && (
-              <span className="tabBadge timerBadge">
-                {activeTimers.length} ⏰
-              </span>
+              <span className="tabBadge timerBadge">{activeTimers.length}</span>
             )}
           </button>
         ))}
       </div>
 
-      {/* ── ANALYTICS ── */}
+      {/* ── ANALYTICS ─────────────────────────────────────────────────────────── */}
       {activeTab === "analytics" && (
         <div>
           <div className="analyticsGrid">
@@ -498,11 +771,7 @@ export default function AdminPanel() {
             </div>
             <div className="analyticsCard highlight">
               <h2>{activeTimers.length}</h2>
-              <p>⏰ Active Timers</p>
-            </div>
-            <div className="analyticsCard">
-              <h2>{rewardHistory.length}</h2>
-              <p>Total Rewards Won</p>
+              <p>Active Timers</p>
             </div>
             <div className="analyticsCard">
               <h2>{totalCodes}</h2>
@@ -512,12 +781,15 @@ export default function AdminPanel() {
               <h2>{unusedCodes}</h2>
               <p>Unused Codes</p>
             </div>
+            <div className="analyticsCard">
+              <h2>{blockedCount}</h2>
+              <p>Blocked Users</p>
+            </div>
           </div>
 
-          {/* ACTIVE TIMERS SECTION */}
           {activeTimers.length > 0 && (
             <div className="activeTimersBox">
-              <h3>⏰ Live Reward Timers</h3>
+              <h3>Live Reward Timers</h3>
               {activeTimers.map((c) => {
                 const countdown = getCountdown(c.claimStartTime);
                 return (
@@ -532,7 +804,7 @@ export default function AdminPanel() {
                       <span>{c.mobile}</span>
                     </div>
                     <div className="timerReward">
-                      🎁 {c.selectedReward || "Reward Pending"}
+                      {c.selectedReward || "Reward Pending"}
                     </div>
                     <div
                       className={`timerCountdown ${
@@ -548,25 +820,61 @@ export default function AdminPanel() {
           )}
 
           <button className="exportBtn" onClick={exportCSV}>
-            ⬇️ Download Customers CSV
+            Download Customers CSV
           </button>
         </div>
       )}
 
-      {/* ── CODES ── */}
+      {/* ── CODES ─────────────────────────────────────────────────────────────── */}
       {activeTab === "codes" && (
         <div>
           <div className="generatorBox">
             <h3>Generate Reward Codes</h3>
+            <p className="generatorNote">
+              New format:{" "}
+              <code>PREFIX + 5 digits + hyphen + 3 alphanumeric</code>
+              &nbsp;(e.g. <strong>HM82341-K7X</strong>) — ~1.6 billion
+              combinations
+            </p>
             <input
               type="number"
               value={codeCount}
+              min={1}
+              max={500}
               onChange={(e) => setCodeCount(Number(e.target.value))}
             />
             <button className="generateBtn" onClick={generateCodes}>
-              Generate Codes
+              Generate {codeCount} Codes
             </button>
           </div>
+
+          <div className="archiveBox">
+            <h4>Archive & Clean Used Codes</h4>
+            <p>
+              Download a CSV backup of old used codes, then permanently delete
+              them from Firebase to keep the database lean.
+            </p>
+            <div className="archiveControls">
+              <select
+                className="daysSelect"
+                value={cleanDays}
+                onChange={(e) => setCleanDays(Number(e.target.value))}
+              >
+                <option value={30}>Older than 30 days</option>
+                <option value={60}>Older than 60 days</option>
+                <option value={90}>Older than 90 days</option>
+                <option value={180}>Older than 180 days</option>
+              </select>
+              <button
+                className="archiveBtn"
+                onClick={archiveAndClean}
+                disabled={cleaning}
+              >
+                {cleaning ? "Archiving..." : "Archive & Delete"}
+              </button>
+            </div>
+          </div>
+
           <div className="filterBar">
             {(
               ["all", "unused", "used", "printed", "unprinted"] as CodeFilter[]
@@ -591,142 +899,172 @@ export default function AdminPanel() {
               </button>
             ))}
           </div>
-          <button className="exportBtn" onClick={exportCodesCSV}>
-            ⬇️ Download Codes CSV
-          </button>
 
-          {/* ARCHIVE & CLEAN */}
-          <div className="archiveBox">
-            <h4>🗑️ Archive & Clean Used Codes</h4>
-            <p>
-              Downloads a CSV backup first, then permanently deletes used codes
-              older than selected days. Unused & printed codes are never
-              deleted.
-            </p>
-            <div className="archiveControls">
-              <select
-                className="daysSelect"
-                value={cleanDays}
-                onChange={(e) => setCleanDays(Number(e.target.value))}
-              >
-                <option value={30}>Older than 30 days</option>
-                <option value={60}>Older than 60 days</option>
-                <option value={90}>Older than 90 days</option>
-                <option value={180}>Older than 180 days</option>
-              </select>
-              <button
-                className="archiveBtn"
-                onClick={archiveAndClean}
-                disabled={cleaning}
-              >
-                {cleaning
-                  ? "🗑️ Deleting..."
-                  : `🗑️ Archive & Delete (${
-                      codes.filter(
-                        (c) =>
-                          c.used &&
-                          c.createdAt &&
-                          c.createdAt < Date.now() - cleanDays * 86400000
-                      ).length
-                    } codes)`}
-              </button>
-            </div>
-          </div>
           <input
             type="text"
-            placeholder="Search code..."
+            placeholder="Search codes..."
             className="searchInput"
             value={codeSearch}
             onChange={(e) => setCodeSearch(e.target.value)}
           />
-          <div className="tableWrapper">
+
+          <button className="exportBtn" onClick={exportCodesCSV}>
+            Download Codes CSV
+          </button>
+
+          {/* BULK ACTIONS BAR — Codes */}
+          {selectedCodes.length > 0 && (
+            <div className="bulkActionsBar">
+              <span className="bulkCount">{selectedCodes.length} selected</span>
+              <div className="bulkBtns">
+                <button
+                  className="bulkDeleteBtn"
+                  onClick={() =>
+                    openConfirm(
+                      "Delete Selected Codes",
+                      `Permanently delete ${selectedCodes.length} selected code(s)? This cannot be undone.`,
+                      deleteSelectedCodes
+                    )
+                  }
+                >
+                  Delete Selected
+                </button>
+                <button
+                  className="bulkClearBtn"
+                  onClick={() => setSelectedCodes([])}
+                >
+                  Clear Selection
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="tableWrapper" style={{ marginTop: "14px" }}>
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: "40px" }}>
+                    <input
+                      type="checkbox"
+                      className="printCheckbox"
+                      checked={
+                        selectedCodes.length === filteredCodes.length &&
+                        filteredCodes.length > 0
+                      }
+                      onChange={() => toggleSelectAllCodes(filteredCodes)}
+                    />
+                  </th>
                   <th>Code</th>
                   <th>Status</th>
                   <th>Printed</th>
                   <th>Generated</th>
-                  <th>Action</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredCodes.map((c) => (
-                  <tr key={c.id}>
-                    <td>
-                      <strong>{c.code}</strong>
+                {filteredCodes.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      style={{
+                        textAlign: "center",
+                        padding: "30px",
+                        color: "#94a3b8",
+                      }}
+                    >
+                      No codes found
                     </td>
-                    <td>
-                      <span
-                        className={`statusBadge ${
-                          c.used ? "usedBadge" : "unusedBadge"
-                        }`}
+                  </tr>
+                ) : (
+                  filteredCodes.map((c) => (
+                    <tr
+                      key={c.id}
+                      className={
+                        selectedCodes.includes(c.id) ? "selectedRow" : ""
+                      }
+                    >
+                      <td>
+                        <input
+                          type="checkbox"
+                          className="printCheckbox"
+                          checked={selectedCodes.includes(c.id)}
+                          onChange={() => toggleSelectCode(c.id)}
+                        />
+                      </td>
+                      <td>
+                        <code
+                          style={{
+                            fontFamily: "'DM Mono', monospace",
+                            fontSize: "13px",
+                            letterSpacing: "0.5px",
+                          }}
+                        >
+                          {c.code}
+                        </code>
+                      </td>
+                      <td>
+                        <span
+                          className={`statusBadge ${
+                            c.used ? "usedBadge" : "unusedBadge"
+                          }`}
+                        >
+                          {c.used ? "Used" : "Unused"}
+                        </span>
+                      </td>
+                      <td>
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            className="printCheckbox"
+                            checked={!!c.printed}
+                            onChange={() => togglePrinted(c.id, c.printed)}
+                          />
+                          <span className="printLabel">
+                            {c.printed ? "Printed" : "Not printed"}
+                          </span>
+                        </label>
+                      </td>
+                      <td
+                        style={{
+                          color: "var(--text-muted)",
+                          fontSize: "12.5px",
+                        }}
                       >
-                        {c.used ? "🔴 Used" : "🟢 Unused"}
-                      </span>
-                    </td>
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={c.printed || false}
-                        onChange={() =>
-                          togglePrinted(c.code, c.printed || false)
-                        }
-                        className="printCheckbox"
-                      />
-                      <span className="printLabel">
-                        {c.printed ? " Printed" : " Not Printed"}
-                      </span>
-                    </td>
-                    <td>
-                      {c.createdAt
-                        ? new Date(c.createdAt).toLocaleDateString("en-IN")
-                        : "-"}
-                    </td>
-                    <td>
-                      {!c.used && (
+                        {c.createdAt
+                          ? new Date(c.createdAt).toLocaleDateString("en-IN")
+                          : "-"}
+                      </td>
+                      <td>
                         <button
                           className="deleteBtn"
-                          onClick={() => deleteCode(c.code)}
+                          onClick={() => deleteCode(c.id)}
                         >
                           Delete
                         </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* ── REWARDS CONFIG ── */}
+      {/* ── REWARDS CONFIG ────────────────────────────────────────────────────── */}
       {activeTab === "rewards" && (
         <div className="rewardConfigBox">
-          <h2>⚙️ Reward Configuration</h2>
+          <h2>Rewards Configuration</h2>
+
           <div className="configRow">
-            <label>Stamps Required for Reward</label>
-            <div className="configControl">
-              <button
-                className="adjBtn"
-                onClick={() =>
-                  setStampsRequired(Math.max(1, stampsRequired - 1))
-                }
-              >
-                −
-              </button>
-              <span className="configVal">{stampsRequired}</span>
-              <button
-                className="adjBtn"
-                onClick={() => setStampsRequired(stampsRequired + 1)}
-              >
-                +
-              </button>
-            </div>
-          </div>
-          <div className="configRow">
-            <label>Reward Claim Window (Hours)</label>
+            <label>Claim Window (hours)</label>
             <div className="configControl">
               <button
                 className="adjBtn"
@@ -743,10 +1081,11 @@ export default function AdminPanel() {
               </button>
             </div>
           </div>
+
           <div className="rewardOptionsBox">
             <h3>Reward Options</h3>
             {rewardOptions.map((r, i) => (
-              <div key={i} className="rewardOptionRow">
+              <div className="rewardOptionRow" key={i}>
                 {editingReward === i ? (
                   <>
                     <input
@@ -769,7 +1108,7 @@ export default function AdminPanel() {
                   </>
                 ) : (
                   <>
-                    <span className="rewardOptionText">🎁 {r}</span>
+                    <span className="rewardOptionText">{r}</span>
                     <button
                       className="editRewardBtn"
                       onClick={() => {
@@ -798,27 +1137,27 @@ export default function AdminPanel() {
                 onKeyDown={(e) => e.key === "Enter" && addReward()}
               />
               <button className="addRewardBtn" onClick={addReward}>
-                + Add
+                Add
               </button>
             </div>
           </div>
+
           <button
             className="saveConfigBtn"
             onClick={saveConfig}
             disabled={configSaving}
           >
-            {configSaving ? "Saving..." : "💾 Save Configuration"}
+            {configSaving ? "Saving..." : "Save Configuration"}
           </button>
         </div>
       )}
 
-      {/* ── CUSTOMERS ── */}
+      {/* ── CUSTOMERS ─────────────────────────────────────────────────────────── */}
       {activeTab === "customers" && (
         <div>
-          {/* ACTIVE TIMERS IN CUSTOMERS TAB */}
           {activeTimers.length > 0 && (
             <div className="activeTimersBox">
-              <h3>⏰ Customers with Active Reward Timers</h3>
+              <h3>Customers with Active Reward Timers</h3>
               {activeTimers.map((c) => {
                 const countdown = getCountdown(c.claimStartTime);
                 return (
@@ -833,7 +1172,7 @@ export default function AdminPanel() {
                       <span>{c.mobile}</span>
                     </div>
                     <div className="timerReward">
-                      🎁 {c.selectedReward || "Pending"}
+                      {c.selectedReward || "Pending"}
                     </div>
                     <div
                       className={`timerCountdown ${
@@ -850,167 +1189,287 @@ export default function AdminPanel() {
 
           <input
             type="text"
-            placeholder="Search by name or mobile"
+            placeholder="Search by name or mobile..."
             className="searchInput"
             value={customerSearch}
             onChange={(e) => setCustomerSearch(e.target.value)}
           />
+
           {customers.length === 0 ? (
-            <h2 className="loadingText">No customers yet</h2>
+            <p className="loadingText">No customers yet</p>
           ) : (
-            <div className="tableWrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Mobile</th>
-                    <th>Stamps</th>
-                    <th>Adjust</th>
-                    <th>Total Won</th>
-                    <th>Status</th>
-                    <th>Timer</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCustomers.map((c) => {
-                    const countdown =
-                      c.rewardUnlocked && c.claimStartTime
-                        ? getCountdown(c.claimStartTime)
-                        : null;
-                    return (
-                      <tr key={c.id}>
-                        <td>{c.name}</td>
-                        <td>{c.mobile}</td>
-                        <td>
-                          {c.stamps}/{stampsRequired}
-                        </td>
-                        <td>
-                          <div className="btnGroup">
-                            <button
-                              className="adjStampBtn"
-                              onClick={() =>
-                                adjustStamps(c.mobile, c.stamps, -1)
-                              }
+            <div>
+              {/* BULK ACTIONS BAR — Customers */}
+              {selectedCustomers.length > 0 && (
+                <div className="bulkActionsBar">
+                  <span className="bulkCount">
+                    {selectedCustomers.length} selected
+                  </span>
+                  <div className="bulkBtns">
+                    <button
+                      className="bulkBlockBtn"
+                      onClick={() =>
+                        openConfirm(
+                          "Block Selected",
+                          `Block ${selectedCustomers.length} customer(s)? They won't be able to access the rewards platform.`,
+                          blockSelectedCustomers
+                        )
+                      }
+                    >
+                      Block Selected
+                    </button>
+                    <button
+                      className="bulkUnblockBtn"
+                      onClick={() =>
+                        openConfirm(
+                          "Unblock Selected",
+                          `Unblock ${selectedCustomers.length} customer(s)?`,
+                          unblockSelectedCustomers
+                        )
+                      }
+                    >
+                      Unblock Selected
+                    </button>
+                    <button
+                      className="bulkDeleteBtn"
+                      onClick={() =>
+                        openConfirm(
+                          "Delete Selected Customers",
+                          `Permanently delete ${selectedCustomers.length} customer record(s)? Their reward history will remain in the History tab.`,
+                          deleteSelectedCustomers
+                        )
+                      }
+                    >
+                      Delete Selected
+                    </button>
+                    <button
+                      className="bulkClearBtn"
+                      onClick={() => setSelectedCustomers([])}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="tableWrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ width: "40px" }}>
+                        <input
+                          type="checkbox"
+                          className="printCheckbox"
+                          checked={
+                            selectedCustomers.length ===
+                              filteredCustomers.length &&
+                            filteredCustomers.length > 0
+                          }
+                          onChange={() =>
+                            toggleSelectAllCustomers(filteredCustomers)
+                          }
+                        />
+                      </th>
+                      <th>Name</th>
+                      <th>Mobile</th>
+                      <th>Total Wins</th>
+                      <th>Last Reward</th>
+                      <th>Timer</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCustomers.map((c) => {
+                      const countdown =
+                        c.rewardUnlocked && c.claimStartTime
+                          ? getCountdown(c.claimStartTime)
+                          : null;
+                      const wins = getCustomerWins(c.mobile);
+                      return (
+                        <tr
+                          key={c.id}
+                          className={
+                            c.blocked
+                              ? "blockedRow"
+                              : selectedCustomers.includes(c.id)
+                              ? "selectedRow"
+                              : ""
+                          }
+                        >
+                          <td>
+                            <input
+                              type="checkbox"
+                              className="printCheckbox"
+                              checked={selectedCustomers.includes(c.id)}
+                              onChange={() => toggleSelectCustomer(c.id)}
+                            />
+                          </td>
+                          <td>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "7px",
+                              }}
                             >
-                              −
-                            </button>
-                            <button
-                              className="adjStampBtn"
-                              onClick={() =>
-                                adjustStamps(c.mobile, c.stamps, 1)
-                              }
-                            >
-                              +
-                            </button>
-                          </div>
-                        </td>
-                        <td>
-                          <span className="totalWonBadge">
-                            {c.totalRewardsWon || 0} 🏆
-                          </span>
-                        </td>
-                        <td>
-                          <span
-                            className={`statusBadge ${
-                              c.rewardClaimed
-                                ? "usedBadge"
-                                : c.rewardExpired
-                                ? "expiredBadge"
-                                : c.rewardUnlocked
-                                ? "unlockedBadge"
-                                : "unusedBadge"
-                            }`}
+                              {c.name}
+                              {c.blocked && (
+                                <span className="blockedBadge">Blocked</span>
+                              )}
+                            </div>
+                          </td>
+                          <td
+                            style={{
+                              fontFamily: "'DM Mono', monospace",
+                              fontSize: "13px",
+                            }}
                           >
-                            {c.rewardClaimed
-                              ? "Claimed"
-                              : c.rewardExpired
-                              ? "Expired"
-                              : c.rewardUnlocked
-                              ? "Unlocked"
-                              : "Collecting"}
-                          </span>
-                        </td>
-                        <td>
-                          {countdown && (
-                            <span
-                              className={`timerCell ${
-                                countdown.warning ? "warningText" : ""
-                              } ${countdown.expired ? "expiredText" : ""}`}
-                            >
-                              {countdown.text}
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <div className="btnGroup">
-                            <button
-                              className="resetBtn"
-                              onClick={() => resetReward(c.mobile)}
-                            >
-                              Reset
-                            </button>
-                            <button
-                              className="deleteBtn"
-                              onClick={() => deleteCustomer(c.mobile)}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                            {c.mobile}
+                          </td>
+                          <td>
+                            <span className="totalWonBadge">{wins}</span>
+                          </td>
+                          <td
+                            style={{
+                              fontSize: "12.5px",
+                              color: "var(--text-secondary)",
+                            }}
+                          >
+                            {c.lastRewardClaimed || "—"}
+                          </td>
+                          <td>
+                            {countdown && (
+                              <span
+                                className={`timerCell ${
+                                  countdown.warning ? "warningText" : ""
+                                } ${countdown.expired ? "expiredText" : ""}`}
+                              >
+                                {countdown.text}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <div className="btnGroup">
+                              <button
+                                className="viewBtn"
+                                onClick={() =>
+                                  setHistoryModal({ open: true, customer: c })
+                                }
+                              >
+                                History
+                              </button>
+                              <button
+                                className="resetBtn"
+                                onClick={() =>
+                                  openConfirm(
+                                    "Reset Timer",
+                                    `Reset timer for ${c.name} (${c.mobile})? Clears current reward state. History is not affected.`,
+                                    () => resetTimer(c.mobile, c.name)
+                                  )
+                                }
+                              >
+                                Reset Timer
+                              </button>
+                              {c.blocked ? (
+                                <button
+                                  className="unblockBtn"
+                                  onClick={() =>
+                                    openConfirm(
+                                      "Unblock Customer",
+                                      `Allow ${c.name} (${c.mobile}) to access the rewards platform again?`,
+                                      () => unblockCustomer(c.mobile, c.name)
+                                    )
+                                  }
+                                >
+                                  Unblock
+                                </button>
+                              ) : (
+                                <button
+                                  className="blockBtn"
+                                  onClick={() =>
+                                    openConfirm(
+                                      "Block Customer",
+                                      `Block ${c.name} (${c.mobile})? They cannot access rewards until unblocked.`,
+                                      () => blockCustomer(c.mobile, c.name)
+                                    )
+                                  }
+                                >
+                                  Block
+                                </button>
+                              )}
+                              <button
+                                className="deleteBtn"
+                                onClick={() => deleteCustomer(c.mobile)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* ── HISTORY ── */}
+      {/* ── HISTORY ───────────────────────────────────────────────────────────── */}
       {activeTab === "history" && (
         <div>
           <div className="historyHeader">
-            <h2>📋 Complete Reward History</h2>
+            <h2>Complete Reward History</h2>
             <p>All rewards claimed by customers — permanently stored</p>
           </div>
 
-          {/* PER-CUSTOMER SUMMARY */}
           <div className="customerSummaryBox">
-            <h3>🏆 Top Customers by Rewards Won</h3>
+            <h3>Top Customers by Rewards Won</h3>
             <div className="tableWrapper">
               <table>
                 <thead>
                   <tr>
                     <th>Name</th>
                     <th>Mobile</th>
-                    <th>Total Rewards Won</th>
+                    <th>Total Won</th>
                     <th>Last Reward</th>
                     <th>Last Claimed</th>
                   </tr>
                 </thead>
                 <tbody>
                   {[...customers]
-                    .filter((c) => (c.totalRewardsWon || 0) > 0)
+                    .filter((c) => getCustomerWins(c.mobile) > 0)
                     .sort(
                       (a, b) =>
-                        (b.totalRewardsWon || 0) - (a.totalRewardsWon || 0)
+                        getCustomerWins(b.mobile) - getCustomerWins(a.mobile)
                     )
                     .map((c) => (
                       <tr key={c.id}>
                         <td>{c.name}</td>
-                        <td>{c.mobile}</td>
+                        <td
+                          style={{
+                            fontFamily: "'DM Mono', monospace",
+                            fontSize: "13px",
+                          }}
+                        >
+                          {c.mobile}
+                        </td>
                         <td>
                           <span className="totalWonBadge">
-                            {c.totalRewardsWon} 🏆
+                            {getCustomerWins(c.mobile)}
                           </span>
                         </td>
-                        <td>{c.lastRewardClaimed || "-"}</td>
-                        <td>
+                        <td>{c.lastRewardClaimed || "—"}</td>
+                        <td
+                          style={{
+                            fontSize: "12.5px",
+                            color: "var(--text-muted)",
+                          }}
+                        >
                           {c.lastClaimedAt
                             ? new Date(c.lastClaimedAt).toLocaleString("en-IN")
-                            : "-"}
+                            : "—"}
                         </td>
                       </tr>
                     ))}
@@ -1019,23 +1478,78 @@ export default function AdminPanel() {
             </div>
           </div>
 
-          {/* FULL HISTORY LOG */}
           <div className="historyLogBox">
-            <h3>📜 All Claim Events</h3>
-            <input
-              type="text"
-              placeholder="Search by name, mobile or reward..."
-              className="searchInput"
-              value={historySearch}
-              onChange={(e) => setHistorySearch(e.target.value)}
-            />
-            <button className="exportBtn" onClick={exportHistoryCSV}>
-              ⬇️ Download History CSV
-            </button>
+            <h3>All Claim Events</h3>
+            <div className="historyFilters">
+              <input
+                type="text"
+                placeholder="Search name, mobile or reward..."
+                className="searchInput"
+                style={{ marginBottom: 0 }}
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+              />
+              <select
+                className="daysSelect"
+                value={historyRewardFilter}
+                onChange={(e) => setHistoryRewardFilter(e.target.value)}
+              >
+                <option value="all">All Rewards</option>
+                {rewardOptions.map((r, i) => (
+                  <option key={i} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="daysSelect"
+                value={historyDateFilter}
+                onChange={(e) => setHistoryDateFilter(e.target.value)}
+              >
+                <option value="all">All Time</option>
+                <option value="today">Today</option>
+                <option value="week">Last 7 Days</option>
+                <option value="month">Last 30 Days</option>
+              </select>
+            </div>
+            <div className="historyActions">
+              <span className="historyCount">
+                {filteredHistory.length} records
+              </span>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  className="exportBtn"
+                  style={{ marginBottom: 0 }}
+                  onClick={exportHistoryCSV}
+                >
+                  Export CSV
+                </button>
+                {selectedHistory.length > 0 && (
+                  <button
+                    className="deleteBtn"
+                    style={{ padding: "9px 18px", fontSize: "13.5px" }}
+                    onClick={deleteHistoryRecords}
+                  >
+                    Delete Selected ({selectedHistory.length})
+                  </button>
+                )}
+              </div>
+            </div>
             <div className="tableWrapper">
               <table>
                 <thead>
                   <tr>
+                    <th style={{ width: "40px" }}>
+                      <input
+                        type="checkbox"
+                        className="printCheckbox"
+                        checked={
+                          selectedHistory.length === filteredHistory.length &&
+                          filteredHistory.length > 0
+                        }
+                        onChange={toggleSelectAll}
+                      />
+                    </th>
                     <th>Customer</th>
                     <th>Mobile</th>
                     <th>Reward Claimed</th>
@@ -1046,29 +1560,54 @@ export default function AdminPanel() {
                   {filteredHistory.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={4}
+                        colSpan={5}
                         style={{
                           textAlign: "center",
                           padding: "30px",
                           color: "#94a3b8",
                         }}
                       >
-                        No reward history yet
+                        No records found
                       </td>
                     </tr>
                   ) : (
                     filteredHistory.map((h) => (
-                      <tr key={h.id}>
+                      <tr
+                        key={h.id}
+                        className={
+                          selectedHistory.includes(h.id) ? "selectedRow" : ""
+                        }
+                      >
+                        <td>
+                          <input
+                            type="checkbox"
+                            className="printCheckbox"
+                            checked={selectedHistory.includes(h.id)}
+                            onChange={() => toggleSelectHistory(h.id)}
+                          />
+                        </td>
                         <td>
                           <strong>{h.customerName}</strong>
                         </td>
-                        <td>{h.mobile}</td>
-                        <td>
-                          <span className="rewardClaimedBadge">
-                            🎁 {h.reward}
-                          </span>
+                        <td
+                          style={{
+                            fontFamily: "'DM Mono', monospace",
+                            fontSize: "13px",
+                          }}
+                        >
+                          {h.mobile}
                         </td>
-                        <td>{h.claimedAtFormatted || "-"}</td>
+                        <td>
+                          <span className="rewardClaimedBadge">{h.reward}</span>
+                        </td>
+                        <td
+                          style={{
+                            fontSize: "12.5px",
+                            color: "var(--text-muted)",
+                          }}
+                        >
+                          {h.claimedAtFormatted || "—"}
+                        </td>
                       </tr>
                     ))
                   )}
