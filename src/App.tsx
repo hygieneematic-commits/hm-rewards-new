@@ -975,7 +975,7 @@ export default function App() {
                 </p>
                 <div className="helpLinks">
                   <a
-                    href="https://wa.me/919999999999?text=Hi%2C+I+need+help+with+my+Hygiene+Matic+reward"
+                    href="https://wa.me/919007797751?text=Hi%2C+I+need+help+with+my+Hygiene+Matic+reward"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="helpLink"
