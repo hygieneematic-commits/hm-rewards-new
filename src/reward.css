@@ -1529,12 +1529,6 @@ body {
   font-size: 11.5px;
   color: var(--text-muted);
 }
-linkedNumber {
-  font-size: 8px;
-  color: var(--text-muted);
-  margin-top: 4px;
-  letter-spacing: 0.3px;
-}
 
 /* Outer wrapper with pulse glow */
 .scratchCardOuter {
@@ -1653,6 +1647,38 @@ linkedNumber {
   cursor: crosshair;
   touch-action: none;
   border-radius: var(--radius-md);
+  transition: opacity 0.3s ease;
+}
+/* Hide canvas completely when revealed so reward shows crystal clear */
+.scratchCanvas.revealed {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Reward layer pops with scale + glow when revealed */
+.scratchRewardBehind.revealed .scratchRewardBehindContent {
+  animation: rewardPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.scratchRewardBehind.revealed .scratchRewardName {
+  color: var(--primary);
+}
+.scratchRewardBehind.revealed .scratchGiftCircle {
+  box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.15),
+    0 4px 20px rgba(37, 99, 235, 0.3);
+}
+@keyframes rewardPop {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.6;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 /* Progress */
