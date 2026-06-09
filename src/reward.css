@@ -1,1122 +1,1885 @@
-import "./reward.css";
-import logo from "./assets/hm-logo.png";
-import {
-  QrCode,
-  ShieldCheck,
-  Gift,
-  Sparkles,
-  Trophy,
-  Timer,
-  ChevronDown,
-  ChevronUp,
-  X,
-  Star,
-  Package,
-  Coins,
-  Zap,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-} from "lucide-react";
-import { useEffect, useState, useRef } from "react";
-import { db } from "./firebase";
-import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  collection,
-  addDoc,
-} from "firebase/firestore";
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   HYGIENE MATIC REWARDS HUB â€” Premium UI v3
+   Fixes: scratch card, hero spacing, title gap, tagline,
+          number badges, hero shine
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
-// ── Confetti ────────────────────────────────────────────────────────────────
-function Confetti() {
-  const pieces = Array.from({ length: 48 }, (_, i) => i);
-  const colors = [
-    "#2563EB",
-    "#3B82F6",
-    "#60A5FA",
-    "#FBBF24",
-    "#10B981",
-    "#F472B6",
-    "#A78BFA",
-  ];
-  return (
-    <div className="confettiContainer" aria-hidden="true">
-      {pieces.map((i) => (
-        <div
-          key={i}
-          className="confettiPiece"
-          style={{
-            left: `${Math.random() * 100}%`,
-            background: colors[i % colors.length],
-            animationDelay: `${Math.random() * 0.8}s`,
-            animationDuration: `${0.9 + Math.random() * 0.8}s`,
-            width: `${6 + Math.random() * 6}px`,
-            height: `${6 + Math.random() * 10}px`,
-            borderRadius: Math.random() > 0.5 ? "50%" : "2px",
-            transform: `rotate(${Math.random() * 360}deg)`,
-          }}
-        />
-      ))}
-    </div>
-  );
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=DM+Mono:wght@500&family=Dancing+Script:wght@700&display=swap");
+
+/* â”€â”€ CSS Variables â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+:root {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --primary-light: #3b82f6;
+  --accent: #60a5fa;
+  --accent-soft: #dbeafe;
+  --gold: #fbbf24;
+  --success: #10b981;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --purple: #7c3aed;
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --border: #e2e8f0;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.08),
+    0 2px 6px rgba(15, 23, 42, 0.04);
+  --shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.12),
+    0 4px 12px rgba(15, 23, 42, 0.06);
+  --shadow-blue: 0 6px 24px rgba(37, 99, 235, 0.28);
+  --t: 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  --font-tagline: "Dancing Script", cursive;
 }
 
-export default function App() {
-  const [name, setName] = useState("");
-  const [mobile, setMobile] = useState("");
-  const [code, setCode] = useState("");
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+/* â”€â”€ Reset â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
 
-  // SCRATCH CARD
-  const [showScratchCard, setShowScratchCard] = useState(false);
-  const [scratchReward, setScratchReward] = useState("");
-  const [scratched, setScratched] = useState(false);
-  const [revealed, setRevealed] = useState(false);
-  const [scratchPercent, setScratchPercent] = useState(0);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const isDrawing = useRef(false);
+body {
+  background: var(--bg);
+  font-family: "DM Sans", "Segoe UI", system-ui, sans-serif;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
 
-  // REWARD POPUPS
-  const [showCountdownPopup, setShowCountdownPopup] = useState(false);
-  const [showExpiredPopup, setShowExpiredPopup] = useState(false);
-  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
-  const [claimedRewardName, setClaimedRewardName] = useState("");
-  const [selectedReward, setSelectedReward] = useState("");
-  const [claimStarted, setClaimStarted] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(86400);
-  const [claimSeconds, setClaimSeconds] = useState(86400);
+.app {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
 
-  // CONFIRM DIALOG (Sol 1 & 2)
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      HEADER
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.header {
+  background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #3b82f6 100%);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 18px;
+  position: sticky;
+  top: 0;
+  z-index: 999;
+  overflow: hidden;
+}
 
-  // CONFIG
-  const [rewards, setRewards] = useState([
-    "Free Glass Cleaner",
-    "Free Floor Cleaner",
-    "Free Dishwash Combo",
-    "Free Toilet Cleaner",
-    "Flat ₹50 Cashback",
-  ]);
-  const [openFAQ, setOpenFAQ] = useState<number | null>(null);
-
-  // LOAD CONFIG
-  useEffect(() => {
-    const loadConfig = async () => {
-      const snap = await getDoc(doc(db, "config", "rewards"));
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.claimHours) setClaimSeconds(data.claimHours * 3600);
-        if (data.rewardOptions?.length) setRewards(data.rewardOptions);
-      }
-    };
-    loadConfig();
-  }, []);
-
-  // AUTO HIDE MESSAGE
-  useEffect(() => {
-    if (message) {
-      const timeout = setTimeout(() => setMessage(""), 4000);
-      return () => clearTimeout(timeout);
-    }
-  }, [message]);
-
-  // LOAD CUSTOMER
-  useEffect(() => {
-    const fetchCustomer = async () => {
-      if (mobile.length < 10) return;
-      const normalizedMobile = normalizeMobile(mobile);
-      const customerRef = doc(db, "customers", normalizedMobile);
-      const customerSnap = await getDoc(customerRef);
-      if (customerSnap.exists()) {
-        const data = customerSnap.data();
-        if (data.selectedReward) setSelectedReward(data.selectedReward);
-        if (data.rewardUnlocked && !data.rewardClaimed) {
-          if (data.claimStartTime) {
-            const diff =
-              claimSeconds -
-              Math.floor((Date.now() - data.claimStartTime) / 1000);
-            if (diff <= 0) {
-              await updateDoc(customerRef, {
-                rewardUnlocked: false,
-                rewardClaimed: false,
-                rewardExpired: true,
-                selectedReward: "",
-                claimStartTime: null,
-              });
-              setShowExpiredPopup(true);
-            } else {
-              setClaimStarted(true);
-              setTimeLeft(diff);
-              setShowCountdownPopup(true);
-            }
-          } else {
-            setShowCountdownPopup(true);
-          }
-        }
-      }
-    };
-    fetchCustomer();
-  }, [mobile]);
-
-  // TIMER
-  useEffect(() => {
-    let timer: any;
-    if (claimStarted && timeLeft > 0) {
-      timer = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
-    }
-    if (timeLeft <= 0 && claimStarted) {
-      setClaimStarted(false);
-      setShowCountdownPopup(false);
-      setShowExpiredPopup(true);
-      const normalizedMobile = normalizeMobile(mobile);
-      if (normalizedMobile.length === 10) {
-        updateDoc(doc(db, "customers", normalizedMobile), {
-          rewardUnlocked: false,
-          rewardClaimed: false,
-          rewardExpired: true,
-          selectedReward: "",
-          claimStartTime: null,
-        });
-      }
-    }
-    return () => clearInterval(timer);
-  }, [claimStarted, timeLeft]);
-
-  // SCRATCH CARD CANVAS — premium colorful surface
-  useEffect(() => {
-    if (!showScratchCard) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    // Rich blue-purple-gold gradient surface
-    const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    grad.addColorStop(0, "#1E3A8A");
-    grad.addColorStop(0.35, "#2563EB");
-    grad.addColorStop(0.65, "#7C3AED");
-    grad.addColorStop(1, "#1D4ED8");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Subtle radial glow spots
-    const glow1 = ctx.createRadialGradient(60, 40, 0, 60, 40, 90);
-    glow1.addColorStop(0, "rgba(251,191,36,0.25)");
-    glow1.addColorStop(1, "transparent");
-    ctx.fillStyle = glow1;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const glow2 = ctx.createRadialGradient(
-      canvas.width - 50,
-      canvas.height - 30,
-      0,
-      canvas.width - 50,
-      canvas.height - 30,
-      80
-    );
-    glow2.addColorStop(0, "rgba(167,139,250,0.3)");
-    glow2.addColorStop(1, "transparent");
-    ctx.fillStyle = glow2;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Diagonal shimmer stripes
-    for (let i = -2; i < 10; i++) {
-      ctx.beginPath();
-      const x = (canvas.width / 7) * i;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x + 40, canvas.height);
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
-      ctx.lineWidth = 18;
-      ctx.stroke();
-    }
-
-    // Dot pattern
-    ctx.fillStyle = "rgba(255,255,255,0.05)";
-    for (let r = 0; r < canvas.height; r += 14) {
-      for (let c = 0; c < canvas.width; c += 14) {
-        ctx.beginPath();
-        ctx.arc(c, r, 1.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // Gold star decorations
-    const drawStar = (x: number, y: number, size: number, alpha: number) => {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.fillStyle = `rgba(251,191,36,${alpha})`;
-      ctx.font = `${size}px serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("✦", 0, 0);
-      ctx.restore();
-    };
-    drawStar(28, 22, 14, 0.6);
-    drawStar(canvas.width - 28, canvas.height - 22, 14, 0.55);
-    drawStar(canvas.width - 24, 24, 10, 0.4);
-    drawStar(24, canvas.height - 20, 10, 0.4);
-
-    // Centre text with glow
-    ctx.save();
-    ctx.shadowColor = "rgba(251,191,36,0.6)";
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = "#FBBF24";
-    ctx.font = "bold 15px 'DM Sans','Segoe UI',sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(
-      "✦  Scratch to Reveal Your Reward  ✦",
-      canvas.width / 2,
-      canvas.height / 2 - 10
-    );
-    ctx.restore();
-
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.font = "12px 'DM Sans','Segoe UI',sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(
-      "Use finger or mouse",
-      canvas.width / 2,
-      canvas.height / 2 + 14
-    );
-  }, [showScratchCard]);
-
-  // SCRATCH LOGIC — unchanged
-  const getScratchPos = (e: any, canvas: HTMLCanvasElement) => {
-    const rect = canvas.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return {
-      x: (clientX - rect.left) * (canvas.width / rect.width),
-      y: (clientY - rect.top) * (canvas.height / rect.height),
-    };
-  };
-
-  const scratch = (e: any) => {
-    if (!isDrawing.current) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const pos = getScratchPos(e, canvas);
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, 28, 0, Math.PI * 2);
-    ctx.fill();
-    checkScratchPercent(ctx, canvas);
-  };
-
-  const checkScratchPercent = (
-    ctx: CanvasRenderingContext2D,
-    canvas: HTMLCanvasElement
-  ) => {
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    let transparent = 0;
-    for (let i = 3; i < imageData.data.length; i += 4) {
-      if (imageData.data[i] === 0) transparent++;
-    }
-    const percent = (transparent / (canvas.width * canvas.height)) * 100;
-    setScratchPercent(percent);
-    // Trigger at 1% — reveals on first scratch gesture
-    if (percent > 1 && !scratched) {
-      setScratched(true);
-      // Instantly wipe remaining canvas so reward shows fully
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      setScratchPercent(100);
-      // Hide canvas element entirely so reward layer is crystal clear
-      setRevealed(true);
-      // Hold on revealed reward for ~2.8s then move to countdown popup
-      setTimeout(() => {
-        setShowScratchCard(false);
-        setRevealed(false);
-        setShowCountdownPopup(true);
-        setClaimStarted(true);
-        setTimeLeft(claimSeconds);
-      }, 2800);
-    }
-  };
-
-  // VALIDATION
-  const validateMobile = (num: string): boolean =>
-    /^[6-9][0-9]{9}$/.test(num.trim());
-  const normalizeMobile = (num: string): string => num.trim();
-
-  // SUBMIT — unchanged
-  const handleSubmit = async () => {
-    if (!name || !mobile || !code) {
-      setMessage("Please fill all details");
-      return;
-    }
-    if (mobile.length !== 10 || !validateMobile(mobile)) {
-      setMessage("Enter valid 10-digit mobile number starting with 6-9");
-      return;
-    }
-    setLoading(true);
-    try {
-      const cleanCode = code.trim().toUpperCase();
-      const codeRef = doc(db, "codes", cleanCode);
-      const codeSnap = await getDoc(codeRef);
-
-      // CHECK IF CUSTOMER IS BLOCKED before doing anything
-      const normalizedMobileCheck = normalizeMobile(mobile);
-      const customerCheckRef = doc(db, "customers", normalizedMobileCheck);
-      const customerCheckSnap = await getDoc(customerCheckRef);
-      if (customerCheckSnap.exists() && customerCheckSnap.data().blocked) {
-        setMessage(
-          "Your account has been temporarily restricted. Please contact support for assistance."
-        );
-        return;
-      }
-      if (!codeSnap.exists()) {
-        setMessage("Invalid Product Code");
-        return;
-      }
-      if (codeSnap.data().used) {
-        setMessage("This code has already been used");
-        return;
-      }
-      await updateDoc(codeRef, { used: true, usedAt: Date.now() });
-
-      const randomReward = rewards[Math.floor(Math.random() * rewards.length)];
-      setScratchReward(randomReward);
-      setSelectedReward(randomReward);
-
-      const normalizedMobile = normalizeMobile(mobile);
-      const customerRef = doc(db, "customers", normalizedMobile);
-      const custSnap = await getDoc(customerRef);
-      const prevTotal = custSnap.exists()
-        ? custSnap.data().totalRewardsWon || 0
-        : 0;
-
-      await setDoc(
-        customerRef,
-        {
-          name,
-          mobile: normalizedMobile,
-          rewardUnlocked: true,
-          rewardClaimed: false,
-          rewardExpired: false,
-          selectedReward: randomReward,
-          claimStartTime: Date.now(),
-          lastScanDate: Date.now(),
-          totalRewardsWon: prevTotal,
-        },
-        { merge: true }
-      );
-
-      setCode("");
-      setScratched(false);
-      setRevealed(false);
-      setScratchPercent(0);
-      setShowScratchCard(true);
-    } catch (err) {
-      console.log(err);
-      setMessage("Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // LIVE CLOCK — updates every second on the countdown screen
-  const [liveTime, setLiveTime] = useState(() =>
-    new Date().toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true,
-    })
+.headerGlow {
+  position: absolute;
+  top: -60px;
+  left: -40px;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.12) 0%,
+    transparent 70%
   );
-  useEffect(() => {
-    if (!showCountdownPopup) return;
-    const interval = setInterval(() => {
-      setLiveTime(
-        new Date().toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: true,
-        })
-      );
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [showCountdownPopup]);
-
-  // CLAIM HANDLER — extracted so confirm dialog can call it
-  const handleClaim = async () => {
-    try {
-      const normalizedMobile = normalizeMobile(mobile);
-      const customerRef = doc(db, "customers", normalizedMobile);
-      await addDoc(collection(db, "rewardHistory"), {
-        customerName: name,
-        mobile: normalizedMobile,
-        reward: selectedReward,
-        claimedAt: Date.now(),
-        claimedAtFormatted: new Date().toLocaleString("en-IN"),
-      });
-      const custSnap = await getDoc(customerRef);
-      const prevTotal = custSnap.exists()
-        ? custSnap.data().totalRewardsWon || 0
-        : 0;
-      await updateDoc(customerRef, {
-        rewardUnlocked: false,
-        rewardClaimed: true,
-        selectedReward: "",
-        claimStartTime: null,
-        totalRewardsWon: prevTotal + 1,
-        lastRewardClaimed: selectedReward,
-        lastClaimedAt: Date.now(),
-      });
-      setShowConfirmDialog(false);
-      setShowCountdownPopup(false);
-      setClaimStarted(false);
-      setClaimedRewardName(selectedReward);
-      setSelectedReward("");
-      setTimeLeft(claimSeconds);
-      setShowSuccessPopup(true);
-    } catch (error) {
-      console.log(error);
-      setMessage("Something went wrong");
-    }
-  };
-
-  const formatTime = (secs: number) => {
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = secs % 60;
-    return {
-      h: String(h).padStart(2, "0"),
-      m: String(m).padStart(2, "0"),
-      s: String(s).padStart(2, "0"),
-    };
-  };
-  const t = formatTime(timeLeft);
-
-  return (
-    <>
-      {/* TOAST */}
-      {message && (
-        <div
-          className={`toastPopup ${
-            message.includes("Invalid") || message.includes("wrong")
-              ? "error"
-              : message.includes("used")
-              ? "warning"
-              : ""
-          }`}
-        >
-          <AlertCircle size={16} className="toastIcon" />
-          {message}
-        </div>
-      )}
-
-      <div className="app">
-        {/* ── HEADER ──────────────────────────────────────────────────────── */}
-        <header className="header">
-          <div className="headerGlow" aria-hidden="true" />
-          <div className="headerShine" aria-hidden="true" />
-          <div className="logoBox">
-            <div className="logoWrap">
-              <img src={logo} alt="HM Logo" className="hmLogo" />
-            </div>
-            <div className="logoText">
-              <h1>Hygiene Matic</h1>
-              {/* FIX #4: Updated tagline */}
-              <span className="logoSub">Apno Ki Suraksha Ke Liye</span>
-            </div>
-          </div>
-          <div className="rewardBadge">
-            <Sparkles size={14} className="badgeIcon" />
-            <span>Rewards</span>
-          </div>
-        </header>
-
-        {/* ── HERO — FIX #2 & #3: compact, tighter title spacing ─────────── */}
-        <section className="hero">
-          <div className="heroBg" aria-hidden="true" />
-          <div className="heroShine" aria-hidden="true" />
-          <div className="heroContent">
-            <div className="offerTag">
-              <Zap size={12} />
-              NEW LAUNCH OFFER
-            </div>
-            {/* FIX #3: single h2, tighter line-height, no <br> gap */}
-            <h2 className="heroHeading">
-              <span className="heroTitle1">Hygiene Matic</span>
-              <span className="heroTitle2">Rewards Hub</span>
-            </h2>
-            <p className="heroDesc">
-              Buy a Hygiene Matic combo pack, enter your unique product code and
-              instantly win exciting rewards!
-            </p>
-          </div>
-        </section>
-
-        {/* ── INPUT CARD ──────────────────────────────────────────────────── */}
-        <section className="inputCard">
-          <div className="inputCardHeader">
-            <div className="inputCardIcon">
-              <Gift size={20} />
-            </div>
-            <div>
-              <h3>Enter Product Code</h3>
-              <span>Example: DW48291 / FL19482</span>
-            </div>
-          </div>
-          <div className="inputGroup">
-            <label className="inputLabel">Your Name</label>
-            <input
-              type="text"
-              placeholder="Enter your full name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="inputGroup">
-            <label className="inputLabel">Mobile Number</label>
-            <input
-              type="tel"
-              placeholder="10-digit mobile number"
-              value={mobile}
-              onChange={(e) => {
-                const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 10);
-                setMobile(val);
-              }}
-              maxLength={10}
-              inputMode="numeric"
-              pattern="[0-9]{10}"
-            />
-          </div>
-          <div className="inputGroup">
-            <label className="inputLabel">Unique Product Code</label>
-            <input
-              type="text"
-              placeholder="Enter code from your pack"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-          </div>
-          <button
-            className="submitBtn"
-            onClick={handleSubmit}
-            disabled={loading}
-          >
-            {loading ? (
-              <span className="loadingDots">
-                <span className="spinnerRing" /> Verifying…
-              </span>
-            ) : (
-              <>
-                <Sparkles size={17} /> Verify &amp; Win Reward
-              </>
-            )}
-          </button>
-          <small className="inputNote">
-            One reward valid per combo pack only.
-          </small>
-        </section>
-
-        {/* ── HOW IT WORKS — FIX #5: overflow visible on stepCard ────────── */}
-        <section className="howWorksSection">
-          <div className="sectionLabel">
-            <Star size={13} /> Simple Process
-          </div>
-          <h2>How It Works?</h2>
-          <p className="howSub">3 simple steps to your instant reward</p>
-          <div className="stepsContainer">
-            {[
-              {
-                n: 1,
-                icon: <QrCode size={34} />,
-                title: "Scan QR Code",
-                desc: "Scan the QR code printed on your Hygiene Matic combo pack to open this rewards page.",
-              },
-              {
-                n: 2,
-                icon: <ShieldCheck size={34} />,
-                title: "Enter Unique Code",
-                desc: "Enter the unique product code found inside your combo pack to verify your purchase.",
-              },
-              {
-                n: 3,
-                icon: <Gift size={34} />,
-                title: "Scratch & Win",
-                desc: "Scratch the digital card to instantly reveal your reward. Every purchase is a guaranteed win!",
-              },
-            ].map(({ n, icon, title, desc }) => (
-              <div className="stepCard" key={n}>
-                {/* FIX #5: badge is inside card flow, not absolute-clipped */}
-                <div className="stepNumberBadge">{n}</div>
-                <div className="stepIcon">{icon}</div>
-                <h3>{title}</h3>
-                <p>{desc}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ── INSTANT REWARD SECTION ──────────────────────────────────────── */}
-        <section className="bigRewardSection">
-          <div className="bigRewardOrb bigRewardOrb1" aria-hidden="true" />
-          <div className="bigRewardOrb bigRewardOrb2" aria-hidden="true" />
-          <div className="bigRewardInner">
-            <div className="bigRewardBadge">
-              <Trophy size={12} /> GUARANTEED REWARDS
-            </div>
-            <h2 className="bigRewardHeading">
-              Every Purchase <span className="bigRewardAccent">Wins!</span>
-            </h2>
-            <p className="bigRewardSub">
-              Enter your unique code and scratch to instantly reveal your reward
-            </p>
-            <div className="rewardCardsRow">
-              {[
-                { icon: <Package size={15} />, label: "Free Products" },
-                { icon: <Coins size={15} />, label: "Cashback" },
-                { icon: <Star size={15} />, label: "Special Offers" },
-              ].map(({ icon, label }) => (
-                <div className="rewardPill" key={label}>
-                  <span className="rewardPillIcon">{icon}</span>
-                  {label}
-                </div>
-              ))}
-            </div>
-            <div className="scratchPreviewCard">
-              <div className="scratchPreviewShimmer" />
-              <div className="scratchPreviewContent">
-                <div className="scratchPreviewLines">
-                  <div className="scratchLine long" />
-                  <div className="scratchLine short" />
-                </div>
-                <div className="scratchTag">
-                  SCRATCH
-                  <br />& WIN
-                </div>
-              </div>
-            </div>
-            <p className="bigRewardFootnote">
-              One guaranteed reward with every combo pack purchase
-            </p>
-          </div>
-        </section>
-
-        {/* ── FAQ ──────────────────────────────────────────────────────────── */}
-        <section className="faqSection">
-          <div className="sectionLabel dark">
-            <Star size={13} /> Help Center
-          </div>
-          <h2>Frequently Asked Questions</h2>
-          {[
-            {
-              id: 1,
-              q: "How do I find my product code?",
-              a: "Your unique product code is printed inside every Hygiene Matic combo pack.",
-            },
-            {
-              id: 2,
-              q: "Can I use the same code twice?",
-              a: "No. Each product code can only be redeemed once.",
-            },
-            {
-              id: 3,
-              q: "Do I win a reward every time?",
-              a: "Yes! Every valid unique code gives you a guaranteed instant reward. Scratch the card to reveal it.",
-            },
-            { id: 4, q: "How long do I have to claim my reward?", a: null },
-          ].map(({ id, q, a }) => (
-            <div
-              className={`faqItem ${openFAQ === id ? "faqOpen" : ""}`}
-              key={id}
-            >
-              <div
-                className="faqQuestion"
-                onClick={() => setOpenFAQ(openFAQ === id ? null : id)}
-              >
-                <span>{q}</span>
-                {openFAQ === id ? (
-                  <ChevronUp size={17} />
-                ) : (
-                  <ChevronDown size={17} />
-                )}
-              </div>
-              {openFAQ === id && (
-                <div className="faqAnswer">
-                  {a ?? (
-                    <>
-                      You must claim your reward within{" "}
-                      <strong>
-                        {Math.floor(claimSeconds / 3600)} hour
-                        {Math.floor(claimSeconds / 3600) !== 1 ? "s" : ""}
-                      </strong>{" "}
-                      of scratching the card from the same retailer. This is
-                      configured by the reward program and may change.
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </section>
-
-        {/* ── FOOTER — tagline + social links ───────────────────────────── */}
-        <footer className="footer">
-          <div className="footerInner">
-            <img src={logo} alt="HM" className="footerLogo" />
-            <h2>Hygiene Matic</h2>
-            <p className="footerTagline">Apno Ki Suraksha Ke Liye</p>
-            <p className="footerSub">Smart Cleaning • Instant Rewards</p>
-
-            {/* Social links */}
-            <div className="footerSocial">
-              <a
-                href="https://hygienematic.in/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="footerSocialLink"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="2" y1="12" x2="22" y2="12" />
-                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                </svg>
-                hygienematic.in
-              </a>
-              <a
-                href="https://www.instagram.com/hygienematic.in"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="footerSocialLink"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
-                </svg>
-                @hygienematic.in
-              </a>
-            </div>
-
-            <div className="footerDivider" />
-            <span>© 2026 Hygiene Matic. All Rights Reserved.</span>
-          </div>
-        </footer>
-
-        {/* ── SCRATCH CARD POPUP — FIX #1: premium colorful card ─────────── */}
-        {showScratchCard && (
-          <div className="popupOverlay">
-            <div className="scratchPopup">
-              {/* Premium card header */}
-              <div className="scratchPopupHeader">
-                <div className="scratchTrophyRing">
-                  <Trophy size={22} />
-                </div>
-                <p className="scratchTitle">You've Won! Scratch to Reveal</p>
-                <p className="scratchSubtitle">
-                  Use your finger or mouse to scratch
-                </p>
-              </div>
-
-              {/* Premium scratch area */}
-              <div className="scratchCardOuter">
-                {/* Glow pulse ring */}
-                <div className="scratchGlowRing" />
-                <div className="scratchWrapper">
-                  {/* Reward behind layer */}
-                  <div
-                    className={`scratchRewardBehind ${
-                      revealed ? "revealed" : ""
-                    }`}
-                  >
-                    <div className="scratchRewardBehindBg" />
-                    <div className="scratchRewardBehindContent">
-                      <div className="scratchGiftCircle">
-                        <Gift size={30} />
-                      </div>
-                      <div className="scratchRewardName">{scratchReward}</div>
-                      <div className="scratchRewardLabel">YOUR REWARD</div>
-                    </div>
-                  </div>
-                  {/* Canvas overlay */}
-                  <canvas
-                    ref={canvasRef}
-                    width={300}
-                    height={170}
-                    className={`scratchCanvas ${revealed ? "revealed" : ""}`}
-                    onMouseDown={() => {
-                      isDrawing.current = true;
-                    }}
-                    onMouseMove={scratch}
-                    onMouseUp={() => {
-                      isDrawing.current = false;
-                    }}
-                    onMouseLeave={() => {
-                      isDrawing.current = false;
-                    }}
-                    onTouchStart={(e) => {
-                      e.preventDefault();
-                      isDrawing.current = true;
-                    }}
-                    onTouchMove={(e) => {
-                      e.preventDefault();
-                      scratch(e);
-                    }}
-                    onTouchEnd={() => {
-                      isDrawing.current = false;
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Progress */}
-              <div className="scratchProgressWrap">
-                <div className="scratchProgress">
-                  <div
-                    className="scratchProgressBar"
-                    style={{ width: `${Math.min(scratchPercent, 100)}%` }}
-                  />
-                </div>
-                <p className="scratchHint">
-                  {revealed ? (
-                    <span className="scratchRevealMsg">
-                      <CheckCircle2 size={14} /> Your reward is revealed!
-                    </span>
-                  ) : scratched ? (
-                    <span className="scratchRevealMsg">
-                      <CheckCircle2 size={14} /> Reward Revealed!
-                    </span>
-                  ) : (
-                    `${Math.round(scratchPercent)}% scratched`
-                  )}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── COUNTDOWN POPUP ──────────────────────────────────────────────── */}
-        {showCountdownPopup && (
-          <div className="popupOverlay">
-            <div className="popup countdownPopup">
-              <div className="popupTopBand" />
-
-              {/* LIVE indicator — Sol 6: cannot be faked in a screenshot */}
-              <div className="liveRow">
-                <span className="liveDot" />
-                <span className="liveLabel">LIVE</span>
-                <span className="liveClock">{liveTime}</span>
-              </div>
-
-              <div className="rewardUnlockedTag">
-                <CheckCircle2 size={13} /> Reward Unlocked
-              </div>
-              <h2>
-                <Timer size={20} className="popupTitleIcon" /> Collect Your
-                Reward
-              </h2>
-              <h3 className="rewardNameBig">{selectedReward}</h3>
-
-              {/* Timer */}
-              <div className="timerDisplay">
-                <div className="timerBlock">
-                  <span className="timerDigit">{t.h}</span>
-                  <span className="timerUnit">hrs</span>
-                </div>
-                <span className="timerColon">:</span>
-                <div className="timerBlock">
-                  <span className="timerDigit">{t.m}</span>
-                  <span className="timerUnit">min</span>
-                </div>
-                <span className="timerColon">:</span>
-                <div className="timerBlock">
-                  <span className="timerDigit">{t.s}</span>
-                  <span className="timerUnit">sec</span>
-                </div>
-              </div>
-
-              {/* Steps — Sol 5: inline help */}
-              <div className="claimSteps">
-                <div className="claimStep">
-                  <div className="claimStepNum">1</div>
-                  <span>
-                    Visit the <strong>same store</strong> where you bought the
-                    product
-                  </span>
-                </div>
-                <div className="claimStep">
-                  <div className="claimStepNum">2</div>
-                  <span>
-                    Show this <strong>live screen</strong> to the shopkeeper
-                  </span>
-                </div>
-                <div className="claimStep">
-                  <div className="claimStepNum">3</div>
-                  <span>
-                    Press <strong>"I Received My Reward"</strong> after
-                    shopkeeper confirms
-                  </span>
-                </div>
-              </div>
-
-              {/* Sol 1 + Sol 2: renamed button → opens confirm dialog */}
-              <button
-                className="claimBtn"
-                onClick={() => setShowConfirmDialog(true)}
-              >
-                <CheckCircle2 size={17} /> I Received My Reward
-              </button>
-
-              {/* Help center — Sol 5 */}
-              <div className="helpCenter">
-                <p className="helpCenterTitle">
-                  <AlertCircle size={13} /> Need Help?
-                </p>
-                <div className="helpLinks">
-                  <a
-                    href="https://wa.me/919999999999?text=Hi%2C+I+need+help+with+my+Hygiene+Matic+reward"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="helpLink"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                    </svg>
-                    WhatsApp Support
-                  </a>
-                  <a
-                    href="https://hygienematic.in/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="helpLink"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="2" y1="12" x2="22" y2="12" />
-                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                    </svg>
-                    Visit Website
-                  </a>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── CONFIRMATION DIALOG — Sol 1: "Are you sure?" gate ────────────── */}
-        {showConfirmDialog && (
-          <div className="popupOverlay" style={{ zIndex: 999999 }}>
-            <div className="confirmDialog">
-              <div className="confirmIconWrap">
-                <AlertCircle size={28} />
-              </div>
-              <h3 className="confirmTitle">Confirm Receipt</h3>
-              <p className="confirmMsg">
-                Press <strong>"Yes, I Got It"</strong> only after the shopkeeper
-                has handed you the reward.
-                <br />
-                <br />
-                <strong>This cannot be undone.</strong>
-              </p>
-              <div className="confirmBtns">
-                <button
-                  className="confirmBtnCancel"
-                  onClick={() => setShowConfirmDialog(false)}
-                >
-                  <X size={15} /> Not Yet
-                </button>
-                <button className="confirmBtnOk" onClick={handleClaim}>
-                  <CheckCircle2 size={15} /> Yes, I Got It
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── EXPIRED POPUP ────────────────────────────────────────────────── */}
-        {showExpiredPopup && (
-          <div className="popupOverlay">
-            <div className="popup successPopup expiredPopup">
-              <button
-                className="popupClose"
-                onClick={() => setShowExpiredPopup(false)}
-              >
-                <X size={15} />
-              </button>
-              <div className="successIconWrap expired">
-                <Clock size={28} />
-              </div>
-              <h2 className="expiredTitle">Reward Expired</h2>
-              <p className="expiredMsg">
-                You missed the reward claim window. Better luck next time!
-                Purchase a new combo pack to win again.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* ── SUCCESS POPUP ────────────────────────────────────────────────── */}
-        {showSuccessPopup && (
-          <div className="popupOverlay">
-            <div className="popup successPopup">
-              <Confetti />
-              <button
-                className="popupClose"
-                onClick={() => setShowSuccessPopup(false)}
-              >
-                <X size={15} />
-              </button>
-              <div className="successIconWrap">
-                <CheckCircle2 size={28} />
-              </div>
-              <h2 className="successTitle">Reward Received!</h2>
-              <h3 className="successRewardName">{claimedRewardName}</h3>
-              <p className="successNote">
-                Thank you for choosing Hygiene Matic. Enjoy your reward and keep
-                your home clean!
-              </p>
-              <button
-                className="closeSuccessBtn"
-                onClick={() => setShowSuccessPopup(false)}
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </>
+  pointer-events: none;
+}
+.headerShine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.07) 50%,
+    transparent 70%
   );
+  background-size: 200% 100%;
+  animation: headerSweep 5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes headerSweep {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.logoBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+.logoWrap {
+  width: 36px;
+  height: 36px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(8px);
+  flex-shrink: 0;
+}
+.hmLogo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.logoText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.logoText h1 {
+  color: white;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+/* FIX #4 â€” tagline in header */
+.logoSub {
+  color: rgba(255, 255, 255, 0.9);
+  font-family: var(--font-tagline);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.rewardBadge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  backdrop-filter: blur(10px);
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  transition: background var(--t);
+}
+.rewardBadge:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+.badgeIcon {
+  color: var(--gold);
+  flex-shrink: 0;
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      HERO â€” FIX #2 (compact) + FIX #3 (tight title) + FIX #6 (shine)
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.hero {
+  background: linear-gradient(155deg, #eff6ff 0%, #dbeafe 55%, #ede9fe 100%);
+  /* FIX #2: reduced padding top/bottom */
+  padding: 26px 24px 30px;
+  position: relative;
+  overflow: hidden;
+}
+
+.heroBg {
+  position: absolute;
+  top: -70px;
+  right: -70px;
+  width: 240px;
+  height: 240px;
+  background: radial-gradient(
+    circle,
+    rgba(37, 99, 235, 0.1) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+/* FIX #6: subtle animated shine on hero */
+.heroShine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.18) 50%,
+    transparent 65%
+  );
+  background-size: 200% 100%;
+  animation: heroSweep 6s ease-in-out infinite 2s;
+  pointer-events: none;
+}
+@keyframes heroSweep {
+  0% {
+    background-position: 200% 0;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    background-position: -200% 0;
+    opacity: 0;
+  }
+}
+
+.heroContent {
+  position: relative;
+  z-index: 1;
+}
+
+.offerTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  /* FIX #2: smaller bottom margin */
+  margin-bottom: 14px;
+  box-shadow: 0 3px 10px rgba(239, 68, 68, 0.35);
+  animation: offerPulse 2.5s ease-in-out infinite;
+}
+@keyframes offerPulse {
+  0%,
+  100% {
+    box-shadow: 0 3px 10px rgba(239, 68, 68, 0.35);
+  }
+  50% {
+    box-shadow: 0 3px 18px rgba(239, 68, 68, 0.55);
+  }
+}
+
+/* FIX #3: tight heading â€” block spans, no <br> gap */
+.heroHeading {
+  /* FIX #2 + #3: smaller font, tighter line-height */
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.08;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.heroTitle1 {
+  color: #1e3a8a;
+  display: block;
+}
+.heroTitle2 {
+  color: var(--primary);
+  display: block;
+}
+/* FIX #2: less space below heading */
+.heroDesc {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  max-width: 340px;
+  margin: 0;
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      INPUT CARD
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.inputCard {
+  background: var(--surface);
+  margin: 16px 14px;
+  padding: 24px 20px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+}
+.inputCardHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.inputCardIcon {
+  width: 42px;
+  height: 42px;
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.inputCardHeader h3 {
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 3px;
+  line-height: 1.3;
+}
+.inputCardHeader span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: "DM Mono", monospace;
+}
+.inputGroup {
+  margin-bottom: 12px;
+}
+.inputLabel {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  margin-bottom: 5px;
+}
+.inputCard input {
+  width: 100%;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border);
+  padding: 0 14px;
+  font-size: 14.5px;
+  font-family: "DM Sans", sans-serif;
+  outline: none;
+  background: #fafbfc;
+  color: var(--text-primary);
+  transition: border-color var(--t), box-shadow var(--t), background var(--t);
+}
+.inputCard input::placeholder {
+  color: var(--text-muted);
+}
+.inputCard input:focus {
+  border-color: var(--primary);
+  background: white;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+.submitBtn {
+  width: 100%;
+  height: 50px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    135deg,
+    var(--primary-dark),
+    var(--primary-light)
+  );
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: "DM Sans", sans-serif;
+  margin-top: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  box-shadow: var(--shadow-blue);
+  transition: transform var(--t), box-shadow var(--t);
+  letter-spacing: 0.1px;
+}
+.submitBtn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(37, 99, 235, 0.35);
+}
+.submitBtn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.submitBtn:disabled {
+  background: var(--text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.loadingDots {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.spinnerRing {
+  width: 17px;
+  height: 17px;
+  border: 2.5px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  display: inline-block;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.inputNote {
+  display: block;
+  text-align: center;
+  color: var(--text-muted);
+  margin-top: 12px;
+  font-size: 11.5px;
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      SECTION LABEL
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.sectionLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--accent-soft);
+  color: var(--primary);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+.sectionLabel.dark {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--primary-dark);
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      HOW IT WORKS â€” FIX #5: fully visible number badges
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.howWorksSection {
+  padding: 44px 18px;
+  background: #f8faff;
+}
+.howWorksSection h2 {
+  color: var(--text-primary);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  margin-bottom: 5px;
+}
+.howSub {
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  margin-bottom: 28px;
+  line-height: 1.6;
+}
+
+.stepsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-top: 10px;
+}
+
+/* FIX #5 â€” no overflow:hidden, padding-top makes room for badge */
+.stepCard {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  /* extra top padding so the overhanging badge doesn't overlap content */
+  padding: 38px 20px 22px 20px;
+  position: relative;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--t), box-shadow var(--t);
+  cursor: default;
+  /* NO overflow:hidden â€” badge hangs above */
+  margin-top: 18px; /* space for the overhanging badge */
+}
+.stepCard::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  opacity: 0;
+  transition: opacity var(--t);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+.stepCard:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+.stepCard:hover::before {
+  opacity: 1;
+}
+
+/* Step number badge â€” large light-blue circle, clearly visible */
+.stepNumberBadge {
+  position: absolute;
+  top: -18px;
+  left: 20px;
+  width: 44px;
+  height: 44px;
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  border: 2.5px solid white;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: var(--primary-dark);
+  font-size: 18px;
+  font-weight: 800;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.22),
+    0 0 0 3px rgba(37, 99, 235, 0.1);
+  /* parent has no overflow:hidden so fully visible */
+}
+
+.stepIcon {
+  width: 56px;
+  height: 56px;
+  background: linear-gradient(135deg, #dbeafe, #ede9fe);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  margin-bottom: 14px;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.12);
+}
+.stepCard h3 {
+  color: var(--text-primary);
+  font-size: 15.5px;
+  margin-bottom: 7px;
+  font-weight: 700;
+}
+.stepCard p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      BIG REWARD SECTION
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.bigRewardSection {
+  background: linear-gradient(145deg, #0f172a 0%, #1e3a8a 50%, #1d4ed8 100%);
+  padding: 52px 22px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.bigRewardOrb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.bigRewardOrb1 {
+  top: -100px;
+  right: -80px;
+  width: 260px;
+  height: 260px;
+  background: radial-gradient(
+    circle,
+    rgba(96, 165, 250, 0.18) 0%,
+    transparent 70%
+  );
+}
+.bigRewardOrb2 {
+  bottom: -80px;
+  left: -60px;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(
+    circle,
+    rgba(167, 139, 250, 0.12) 0%,
+    transparent 70%
+  );
+}
+.bigRewardInner {
+  position: relative;
+  z-index: 1;
+}
+.bigRewardBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #93c5fd;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  padding: 7px 16px;
+  border-radius: 999px;
+  margin-bottom: 18px;
+  backdrop-filter: blur(6px);
+}
+.bigRewardHeading {
+  color: white;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  line-height: 1.15;
+  margin-bottom: 12px;
+}
+.bigRewardAccent {
+  color: var(--gold);
+  display: inline-block;
+}
+.bigRewardSub {
+  color: #bfdbfe;
+  font-size: 14px;
+  margin-bottom: 28px;
+  line-height: 1.65;
+}
+.rewardCardsRow {
+  display: flex;
+  justify-content: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+.rewardPill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  backdrop-filter: blur(4px);
+  transition: background var(--t), transform var(--t);
+}
+.rewardPill:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-2px);
+}
+.rewardPillIcon {
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+}
+.scratchPreviewCard {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1.5px dashed rgba(255, 255, 255, 0.22);
+  border-radius: var(--radius-md);
+  padding: 20px 18px;
+  margin: 0 auto 22px;
+  max-width: 290px;
+  position: relative;
+  overflow: hidden;
+}
+.scratchPreviewShimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.07) 50%,
+    transparent 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.5s infinite;
+  pointer-events: none;
+}
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.scratchPreviewContent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.scratchPreviewLines {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  flex: 1;
+}
+.scratchLine {
+  height: 11px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+}
+.scratchLine.long {
+  width: 100%;
+}
+.scratchLine.short {
+  width: 55%;
+}
+.scratchTag {
+  background: var(--gold);
+  color: #1e293b;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  white-space: nowrap;
+  text-align: center;
+  line-height: 1.4;
+  animation: tagPulse 2s ease-in-out infinite;
+}
+@keyframes tagPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+.bigRewardFootnote {
+  color: #7dd3fc;
+  font-size: 12.5px;
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      FAQ
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.faqSection {
+  background: var(--bg);
+  padding: 48px 18px;
+}
+.faqSection h2 {
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.4px;
+  margin-bottom: 20px;
+}
+.faqItem {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  margin-bottom: 9px;
+  overflow: hidden;
+  border: 1.5px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--t), box-shadow var(--t);
+}
+.faqItem.faqOpen {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08), var(--shadow-sm);
+}
+.faqQuestion {
+  padding: 16px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  gap: 10px;
+  user-select: none;
+  transition: background var(--t);
+}
+.faqQuestion:hover {
+  background: #fafbff;
+}
+.faqOpen .faqQuestion {
+  color: var(--primary);
+}
+.faqQuestion svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.faqAnswer {
+  padding: 0 18px 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      FOOTER â€” FIX #4: tagline
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.footer {
+  background: linear-gradient(145deg, #0f172a 0%, #1e3a8a 100%);
+  text-align: center;
+  padding: 44px 22px;
+}
+.footerInner {
+  position: relative;
+  z-index: 1;
+}
+.footerLogo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  margin-bottom: 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 5px;
+}
+.footer h2 {
+  color: white;
+  font-size: 19px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+/* Tagline in Dancing Script, prominent gold */
+.footerTagline {
+  font-family: var(--font-tagline);
+  color: #fbbf24;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+.footerSub {
+  color: #93c5fd;
+  font-size: 12px;
+  margin-bottom: 16px;
+  letter-spacing: 0.2px;
+}
+
+/* Social links row */
+.footerSocial {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.footerSocialLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: white;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 999px;
+  transition: background var(--t), transform var(--t);
+  backdrop-filter: blur(4px);
+}
+.footerSocialLink:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+.footerSocialLink svg {
+  flex-shrink: 0;
+}
+.footerDivider {
+  width: 40px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 auto 14px;
+}
+.footer span {
+  color: #475569;
+  font-size: 11px;
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      TOAST
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.toastPopup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--primary);
+  color: white;
+  padding: 14px 20px;
+  border-radius: var(--radius-md);
+  z-index: 999999;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: "DM Sans", sans-serif;
+  text-align: center;
+  min-width: 230px;
+  max-width: 88vw;
+  box-shadow: var(--shadow-lg);
+  animation: toastIn 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+.toastIcon {
+  flex-shrink: 0;
+}
+.toastPopup.error {
+  background: var(--danger);
+}
+.toastPopup.warning {
+  background: var(--warning);
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      POPUP OVERLAY
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.popupOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 99999;
+  padding: 18px;
+  animation: overlayIn 0.18s ease;
+}
+@keyframes overlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.popup {
+  background: var(--surface);
+  width: 100%;
+  max-width: 400px;
+  border-radius: var(--radius-xl);
+  padding: 30px 26px 26px;
+  text-align: center;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.25);
+  animation: popupIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+}
+@keyframes popupIn {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.popupClose {
+  position: absolute;
+  top: 13px;
+  right: 13px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background var(--t), color var(--t);
+  z-index: 2;
+}
+.popupClose:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+/* â”€â”€ Countdown popup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.countdownPopup {
+  max-width: 420px;
+}
+.popupTopBand {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--primary-dark),
+    var(--primary-light),
+    var(--gold)
+  );
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+.rewardUnlockedTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--success);
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 5px 13px;
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+.popup h2 {
+  color: var(--text-primary);
+  font-size: 19px;
+  font-weight: 800;
+  margin-bottom: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.popupTitleIcon {
+  color: var(--primary);
+}
+.rewardNameBig {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 12px;
+  line-height: 1.3;
+}
+.claimInstruction {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+
+/* Timer */
+.timerDisplay {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border: 1.5px solid #bfdbfe;
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.timerBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 48px;
+}
+.timerDigit {
+  font-family: "DM Mono", monospace;
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--primary-dark);
+  line-height: 1;
+  letter-spacing: 1px;
+}
+.timerUnit {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-top: 3px;
+}
+.timerColon {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 10px;
+  opacity: 0.6;
+}
+
+.claimDisclaimer {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  background: #fff7ed;
+  border: 1.5px solid #fed7aa;
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #92400e;
+  text-align: left;
+}
+.disclaimerIcon {
+  color: #f59e0b;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.claimBtn {
+  width: 100%;
+  height: 50px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    135deg,
+    var(--primary-dark),
+    var(--primary-light)
+  );
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: "DM Sans", sans-serif;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  box-shadow: var(--shadow-blue);
+  transition: transform var(--t), box-shadow var(--t);
+}
+.claimBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(37, 99, 235, 0.35);
+}
+.claimBtn:active {
+  transform: translateY(0);
+}
+
+/* â”€â”€ LIVE indicator (Sol 6) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.liveRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 6px 14px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 999px;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+}
+.liveDot {
+  width: 8px;
+  height: 8px;
+  background: var(--success);
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: livePulse 1.2s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(16, 185, 129, 0);
+    opacity: 0.8;
+  }
+}
+.liveLabel {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: var(--success);
+  text-transform: uppercase;
+}
+.liveClock {
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.5px;
+}
+
+/* â”€â”€ Claim steps (Sol 5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.claimSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+  text-align: left;
+}
+.claimStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.claimStepNum {
+  width: 22px;
+  height: 22px;
+  background: linear-gradient(
+    135deg,
+    var(--primary-dark),
+    var(--primary-light)
+  );
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* â”€â”€ Help center (Sol 5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.helpCenter {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.helpCenterTitle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  justify-content: center;
+  margin-bottom: 10px;
+}
+.helpLinks {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.helpLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 6px 13px;
+  border-radius: 999px;
+  transition: background var(--t), color var(--t), border-color var(--t),
+    transform var(--t);
+}
+.helpLink:hover {
+  background: var(--accent-soft);
+  color: var(--primary);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+/* â”€â”€ Confirmation dialog (Sol 1) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.confirmDialog {
+  background: var(--surface);
+  width: 100%;
+  max-width: 340px;
+  border-radius: var(--radius-xl);
+  padding: 32px 26px 26px;
+  text-align: center;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.3);
+  animation: popupIn 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.confirmIconWrap {
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  color: var(--warning);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.25);
+}
+.confirmTitle {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+.confirmMsg {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin-bottom: 22px;
+}
+.confirmBtns {
+  display: flex;
+  gap: 10px;
+}
+.confirmBtnCancel {
+  flex: 1;
+  height: 46px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: "DM Sans", sans-serif;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background var(--t), border-color var(--t), transform var(--t);
+}
+.confirmBtnCancel:hover {
+  background: var(--bg);
+  border-color: var(--text-muted);
+  transform: translateY(-1px);
+}
+.confirmBtnOk {
+  flex: 1.4;
+  height: 46px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, var(--success), #059669);
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: "DM Sans", sans-serif;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+  transition: transform var(--t), box-shadow var(--t);
+}
+.confirmBtnOk:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(16, 185, 129, 0.45);
+}
+
+/* â”€â”€ Success popup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.successPopup {
+  max-width: 360px !important;
+  padding: 34px 26px 28px !important;
+}
+.successIconWrap {
+  width: 68px;
+  height: 68px;
+  background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  color: var(--success);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.25);
+  animation: successBounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes successBounce {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.successIconWrap.expired {
+  background: linear-gradient(135deg, #fee2e2, #fecaca);
+  color: var(--danger);
+  box-shadow: 0 6px 20px rgba(239, 68, 68, 0.2);
+}
+.successTitle {
+  font-size: 20px !important;
+  font-weight: 800 !important;
+  color: var(--text-primary) !important;
+  margin-bottom: 6px !important;
+}
+.successRewardName {
+  font-size: 17px !important;
+  color: var(--primary) !important;
+  font-weight: 700 !important;
+  margin-bottom: 12px !important;
+}
+.successNote {
+  color: var(--text-secondary) !important;
+  font-size: 12.5px !important;
+  line-height: 1.6 !important;
+  margin-bottom: 18px !important;
+}
+.expiredTitle {
+  font-size: 20px !important;
+  font-weight: 800 !important;
+  color: var(--danger) !important;
+  margin-bottom: 6px !important;
+}
+.expiredMsg {
+  color: var(--text-secondary);
+  font-size: 13.5px;
+  line-height: 1.6;
+  margin-top: 6px;
+}
+.closeSuccessBtn {
+  width: 100%;
+  height: 46px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    135deg,
+    var(--primary-dark),
+    var(--primary-light)
+  );
+  color: white;
+  font-size: 14.5px;
+  font-weight: 700;
+  font-family: "DM Sans", sans-serif;
+  cursor: pointer;
+  box-shadow: var(--shadow-blue);
+  transition: transform var(--t), box-shadow var(--t);
+}
+.closeSuccessBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgba(37, 99, 235, 0.3);
+}
+
+/* â”€â”€ Confetti â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.confettiContainer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  z-index: 0;
+}
+.confettiPiece {
+  position: absolute;
+  top: -10px;
+  animation: confettiFall linear forwards;
+}
+@keyframes confettiFall {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(400px) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      SCRATCH CARD POPUP â€” FIX #1: premium colorful design
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+.scratchPopup {
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  padding: 24px 22px 22px;
+  width: 92%;
+  max-width: 360px;
+  text-align: center;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
+  animation: popupIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.scratchPopupHeader {
+  margin-bottom: 18px;
+}
+.scratchTrophyRing {
+  width: 52px;
+  height: 52px;
+  background: linear-gradient(135deg, #dbeafe, #eff6ff);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 10px;
+  color: var(--primary);
+  border: 2px solid #bfdbfe;
+}
+.scratchTitle {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+.scratchSubtitle {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* Outer wrapper with pulse glow */
+.scratchCardOuter {
+  position: relative;
+  width: 300px;
+  margin: 0 auto 14px;
+  /* glow ring behind card */
+}
+.scratchGlowRing {
+  position: absolute;
+  inset: -4px;
+  border-radius: calc(var(--radius-md) + 4px);
+  background: linear-gradient(135deg, #2563eb, #7c3aed, #fbbf24, #2563eb);
+  background-size: 300% 300%;
+  animation: glowRotate 3s linear infinite;
+  z-index: 0;
+  filter: blur(6px);
+  opacity: 0.7;
+}
+@keyframes glowRotate {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.scratchWrapper {
+  position: relative;
+  width: 300px;
+  height: 170px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  z-index: 1;
+}
+
+/* Premium reward layer behind scratch surface */
+.scratchRewardBehind {
+  position: absolute;
+  inset: 0;
+}
+.scratchRewardBehindBg {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    #eff6ff 0%,
+    #dbeafe 40%,
+    #e0e7ff 70%,
+    #f5f3ff 100%
+  );
+}
+/* Stars decoration via pseudo */
+.scratchRewardBehindBg::before {
+  content: "âœ¦";
+  position: absolute;
+  top: 10px;
+  left: 14px;
+  font-size: 16px;
+  color: rgba(251, 191, 36, 0.5);
+}
+.scratchRewardBehindBg::after {
+  content: "âœ¦";
+  position: absolute;
+  bottom: 10px;
+  right: 14px;
+  font-size: 16px;
+  color: rgba(124, 58, 237, 0.35);
+}
+.scratchRewardBehindContent {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.scratchGiftCircle {
+  width: 54px;
+  height: 54px;
+  background: linear-gradient(135deg, #dbeafe, #c7d2fe);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.2);
+}
+.scratchRewardName {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--primary-dark);
+  text-align: center;
+  padding: 0 14px;
+  letter-spacing: -0.3px;
+  line-height: 1.2;
+}
+.scratchRewardLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+/* Canvas overlay â€” same logic, new look */
+.scratchCanvas {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+  border-radius: var(--radius-md);
+  transition: opacity 0.3s ease;
+}
+/* Hide canvas completely when revealed so reward shows crystal clear */
+.scratchCanvas.revealed {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Reward layer pops with scale + glow when revealed */
+.scratchRewardBehind.revealed .scratchRewardBehindContent {
+  animation: rewardPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+.scratchRewardBehind.revealed .scratchRewardName {
+  color: var(--primary);
+}
+.scratchRewardBehind.revealed .scratchGiftCircle {
+  box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.15),
+    0 4px 20px rgba(37, 99, 235, 0.3);
+}
+@keyframes rewardPop {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.6;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Progress */
+.scratchProgressWrap {
+  width: 100%;
+}
+.scratchProgress {
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 9px;
+}
+.scratchProgressBar {
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--primary),
+    var(--purple),
+    var(--accent)
+  );
+  border-radius: 999px;
+  transition: width 0.1s ease;
+}
+.scratchHint {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.scratchRevealMsg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--success);
+  font-weight: 700;
+}
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+      RESPONSIVE â€” â‰¤ 480 px
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+@media (max-width: 480px) {
+  /* Hero */
+  .hero {
+    padding: 20px 18px 24px;
+  }
+  .heroHeading {
+    font-size: 28px;
+  }
+  .heroDesc {
+    font-size: 13px;
+  }
+  .offerTag {
+    font-size: 10px;
+    margin-bottom: 12px;
+  }
+
+  /* Input */
+  .inputCard {
+    margin: 12px 10px;
+    padding: 20px 16px;
+  }
+  .inputCard input {
+    height: 44px;
+    font-size: 14px;
+  }
+  .submitBtn {
+    height: 46px;
+    font-size: 14px;
+  }
+
+  /* Steps */
+  .howWorksSection {
+    padding: 36px 14px;
+  }
+  .howWorksSection h2 {
+    font-size: 22px;
+  }
+  .stepCard {
+    padding: 34px 16px 18px 16px;
+    margin-top: 16px;
+  }
+  .stepCard h3 {
+    font-size: 14.5px;
+  }
+  .stepCard p {
+    font-size: 12.5px;
+  }
+  .stepNumberBadge {
+    width: 38px;
+    height: 38px;
+    font-size: 16px;
+    top: -16px;
+    left: 16px;
+  }
+
+  /* Reward section */
+  .bigRewardHeading {
+    font-size: 24px;
+  }
+  .bigRewardSub {
+    font-size: 13px;
+  }
+  .rewardPill {
+    font-size: 12px;
+    padding: 7px 13px;
+  }
+
+  /* FAQ */
+  .faqSection {
+    padding: 38px 14px;
+  }
+  .faqSection h2 {
+    font-size: 20px;
+  }
+  .faqQuestion {
+    font-size: 13px;
+    padding: 14px 15px;
+  }
+
+  /* Footer */
+  .footer {
+    padding: 36px 18px;
+  }
+  .footerTagline {
+    font-size: 18px;
+  }
+  .footerSocialLink {
+    font-size: 11px;
+    padding: 6px 12px;
+  }
+
+  /* Popups */
+  .popup {
+    padding: 26px 18px 22px;
+  }
+  .popup h2 {
+    font-size: 17px;
+  }
+  .rewardNameBig {
+    font-size: 17px;
+  }
+  .timerDigit {
+    font-size: 22px;
+  }
+  .timerBlock {
+    min-width: 42px;
+  }
+
+  /* Scratch */
+  .scratchCardOuter {
+    width: 268px;
+  }
+  .scratchWrapper {
+    width: 268px;
+    height: 150px;
+  }
+  .scratchRewardName {
+    font-size: 15px;
+  }
+  .scratchTitle {
+    font-size: 14.5px;
+  }
+  .scratchGiftCircle {
+    width: 46px;
+    height: 46px;
+  }
+
+  /* Confirm dialog */
+  .confirmDialog {
+    padding: 26px 20px 22px;
+    max-width: 300px;
+  }
+  .confirmTitle {
+    font-size: 17px;
+  }
+  .confirmMsg {
+    font-size: 12.5px;
+  }
+  .confirmBtnCancel,
+  .confirmBtnOk {
+    height: 42px;
+    font-size: 13px;
+  }
+
+  /* Live row & help */
+  .helpLink {
+    font-size: 11px;
+    padding: 5px 11px;
+  }
+  .liveClock {
+    font-size: 10.5px;
+  }
+  .claimStep {
+    font-size: 12.5px;
+  }
+}
+
+@media (min-width: 520px) {
+  .app {
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
 }
