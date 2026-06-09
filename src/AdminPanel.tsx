@@ -1,1122 +1,1658 @@
-import "./reward.css";
-import logo from "./assets/hm-logo.png";
+import { useEffect, useState } from "react";
 import {
-  QrCode,
-  ShieldCheck,
-  Gift,
-  Sparkles,
-  Trophy,
-  Timer,
-  ChevronDown,
-  ChevronUp,
-  X,
-  Star,
-  Package,
-  Coins,
-  Zap,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-} from "lucide-react";
-import { useEffect, useState, useRef } from "react";
-import { db } from "./firebase";
-import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
   collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  updateDoc,
+  setDoc,
+  getDoc,
+  writeBatch,
   addDoc,
 } from "firebase/firestore";
+import { db } from "./firebase";
+import "./admin.css";
 
-// ── Confetti ────────────────────────────────────────────────────────────────
-function Confetti() {
-  const pieces = Array.from({ length: 48 }, (_, i) => i);
-  const colors = [
-    "#2563EB",
-    "#3B82F6",
-    "#60A5FA",
-    "#FBBF24",
-    "#10B981",
-    "#F472B6",
-    "#A78BFA",
-  ];
-  return (
-    <div className="confettiContainer" aria-hidden="true">
-      {pieces.map((i) => (
-        <div
-          key={i}
-          className="confettiPiece"
-          style={{
-            left: `${Math.random() * 100}%`,
-            background: colors[i % colors.length],
-            animationDelay: `${Math.random() * 0.8}s`,
-            animationDuration: `${0.9 + Math.random() * 0.8}s`,
-            width: `${6 + Math.random() * 6}px`,
-            height: `${6 + Math.random() * 10}px`,
-            borderRadius: Math.random() > 0.5 ? "50%" : "2px",
-            transform: `rotate(${Math.random() * 360}deg)`,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
+type Tab = "analytics" | "codes" | "rewards" | "customers" | "history";
+type CodeFilter = "all" | "used" | "unused" | "printed" | "unprinted";
 
-export default function App() {
-  const [name, setName] = useState("");
-  const [mobile, setMobile] = useState("");
-  const [code, setCode] = useState("");
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+export default function AdminPanel() {
+  const [activeTab, setActiveTab] = useState<Tab>("analytics");
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [filteredCustomers, setFilteredCustomers] = useState<any[]>([]);
+  const [codes, setCodes] = useState<any[]>([]);
+  const [filteredCodes, setFilteredCodes] = useState<any[]>([]);
+  const [rewardHistory, setRewardHistory] = useState<any[]>([]);
+  const [codeFilter, setCodeFilter] = useState<CodeFilter>("all");
+  const [codeSearch, setCodeSearch] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
+  const [selectedHistory, setSelectedHistory] = useState<string[]>([]);
+  const [historyRewardFilter, setHistoryRewardFilter] = useState("all");
+  const [historyDateFilter, setHistoryDateFilter] = useState("all");
+  const [codeCount, setCodeCount] = useState(10);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [toast, setToast] = useState("");
+  const [toastType, setToastType] = useState("success");
+  const [now, setNow] = useState(Date.now());
 
-  // SCRATCH CARD
-  const [showScratchCard, setShowScratchCard] = useState(false);
-  const [scratchReward, setScratchReward] = useState("");
-  const [scratched, setScratched] = useState(false);
-  const [revealed, setRevealed] = useState(false);
-  const [scratchPercent, setScratchPercent] = useState(0);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const isDrawing = useRef(false);
+  // REWARD CONFIG
+  const [claimHours, setClaimHours] = useState(24);
+  const [rewardOptions, setRewardOptions] = useState<string[]>([]);
+  const [newReward, setNewReward] = useState("");
+  const [editingReward, setEditingReward] = useState<number | null>(null);
+  const [editRewardVal, setEditRewardVal] = useState("");
+  const [configSaving, setConfigSaving] = useState(false);
 
-  // REWARD POPUPS
-  const [showCountdownPopup, setShowCountdownPopup] = useState(false);
-  const [showExpiredPopup, setShowExpiredPopup] = useState(false);
-  const [showSuccessPopup, setShowSuccessPopup] = useState(false);
-  const [claimedRewardName, setClaimedRewardName] = useState("");
-  const [selectedReward, setSelectedReward] = useState("");
-  const [claimStarted, setClaimStarted] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(86400);
-  const [claimSeconds, setClaimSeconds] = useState(86400);
+  // CONFIRM DIALOG state (for Reset Timer + Block)
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({ open: false, title: "", message: "", onConfirm: () => {} });
 
-  // CONFIRM DIALOG (Sol 1 & 2)
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  // HISTORY MODAL
+  const [historyModal, setHistoryModal] = useState<{
+    open: boolean;
+    customer: any | null;
+  }>({ open: false, customer: null });
 
-  // CONFIG
-  const [rewards, setRewards] = useState([
-    "Free Glass Cleaner",
-    "Free Floor Cleaner",
-    "Free Dishwash Combo",
-    "Free Toilet Cleaner",
-    "Flat ₹50 Cashback",
-  ]);
-  const [openFAQ, setOpenFAQ] = useState<number | null>(null);
+  // MULTI-SELECT — Codes table
+  const [selectedCodes, setSelectedCodes] = useState<string[]>([]);
 
-  // LOAD CONFIG
+  // MULTI-SELECT — Customers table
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
+
+  const showToast = (msg: string, type = "success") => {
+    setToast(msg);
+    setToastType(type);
+    setTimeout(() => setToast(""), 3500);
+  };
+
+  const openConfirm = (
+    title: string,
+    message: string,
+    onConfirm: () => void
+  ) => {
+    setConfirmDialog({ open: true, title, message, onConfirm });
+  };
+  const closeConfirm = () =>
+    setConfirmDialog({
+      open: false,
+      title: "",
+      message: "",
+      onConfirm: () => {},
+    });
+
+  // ── MULTI-SELECT HELPERS ─────────────────────────────────────────────────────
+
+  const toggleSelectCode = (id: string) =>
+    setSelectedCodes((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+
+  const toggleSelectAllCodes = (filtered: any[]) => {
+    if (selectedCodes.length === filtered.length && filtered.length > 0) {
+      setSelectedCodes([]);
+    } else {
+      setSelectedCodes(filtered.map((c) => c.id));
+    }
+  };
+
+  const toggleSelectCustomer = (id: string) =>
+    setSelectedCustomers((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+
+  const toggleSelectAllCustomers = (filtered: any[]) => {
+    if (selectedCustomers.length === filtered.length && filtered.length > 0) {
+      setSelectedCustomers([]);
+    } else {
+      setSelectedCustomers(filtered.map((c) => c.id));
+    }
+  };
+
+  // ── BULK ACTIONS ─────────────────────────────────────────────────────────────
+
+  const deleteSelectedCodes = async () => {
+    try {
+      const batchSize = 500;
+      for (let i = 0; i < selectedCodes.length; i += batchSize) {
+        const b = writeBatch(db);
+        selectedCodes
+          .slice(i, i + batchSize)
+          .forEach((id) => b.delete(doc(db, "codes", id)));
+        await b.commit();
+      }
+      showToast(`${selectedCodes.length} codes deleted`);
+      setSelectedCodes([]);
+    } catch {
+      showToast("Bulk delete failed", "error");
+    }
+  };
+
+  const deleteSelectedCustomers = async () => {
+    try {
+      const batchSize = 500;
+      for (let i = 0; i < selectedCustomers.length; i += batchSize) {
+        const b = writeBatch(db);
+        selectedCustomers
+          .slice(i, i + batchSize)
+          .forEach((id) => b.delete(doc(db, "customers", id)));
+        await b.commit();
+      }
+      showToast(`${selectedCustomers.length} customers deleted`);
+      setSelectedCustomers([]);
+    } catch {
+      showToast("Bulk delete failed", "error");
+    }
+  };
+
+  const blockSelectedCustomers = async () => {
+    try {
+      const b = writeBatch(db);
+      selectedCustomers.forEach((id) =>
+        b.update(doc(db, "customers", id), { blocked: true })
+      );
+      await b.commit();
+      showToast(`${selectedCustomers.length} customers blocked`);
+      setSelectedCustomers([]);
+    } catch {
+      showToast("Bulk block failed", "error");
+    }
+  };
+
+  const unblockSelectedCustomers = async () => {
+    try {
+      const b = writeBatch(db);
+      selectedCustomers.forEach((id) =>
+        b.update(doc(db, "customers", id), { blocked: false })
+      );
+      await b.commit();
+      showToast(`${selectedCustomers.length} customers unblocked`);
+      setSelectedCustomers([]);
+    } catch {
+      showToast("Bulk unblock failed", "error");
+    }
+  };
+
+  // LIVE CLOCK
   useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // REAL-TIME CUSTOMERS
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const unsub = onSnapshot(collection(db, "customers"), (snap) => {
+      const list: any[] = [];
+      snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
+      setCustomers(list);
+    });
+    return () => unsub();
+  }, [isLoggedIn]);
+
+  // REAL-TIME CODES
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const unsub = onSnapshot(collection(db, "codes"), (snap) => {
+      const list: any[] = [];
+      snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      setCodes(list);
+    });
+    return () => unsub();
+  }, [isLoggedIn]);
+
+  // REAL-TIME REWARD HISTORY
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    const unsub = onSnapshot(collection(db, "rewardHistory"), (snap) => {
+      const list: any[] = [];
+      snap.forEach((d) => list.push({ id: d.id, ...d.data() }));
+      list.sort((a, b) => (b.claimedAt || 0) - (a.claimedAt || 0));
+      setRewardHistory(list);
+    });
+    return () => unsub();
+  }, [isLoggedIn]);
+
+  // LOAD REWARD CONFIG
+  useEffect(() => {
+    if (!isLoggedIn) return;
     const loadConfig = async () => {
       const snap = await getDoc(doc(db, "config", "rewards"));
       if (snap.exists()) {
         const data = snap.data();
-        if (data.claimHours) setClaimSeconds(data.claimHours * 3600);
-        if (data.rewardOptions?.length) setRewards(data.rewardOptions);
+        setClaimHours(data.claimHours || 24);
+        setRewardOptions(data.rewardOptions || []);
+      } else {
+        const defaults = {
+          claimHours: 24,
+          rewardOptions: [
+            "Free Glass Cleaner",
+            "Free Floor Cleaner",
+            "Free Dishwash Combo",
+            "Free Toilet Cleaner",
+            "Flat ₹50 Cashback",
+          ],
+        };
+        await setDoc(doc(db, "config", "rewards"), defaults);
+        setClaimHours(defaults.claimHours);
+        setRewardOptions(defaults.rewardOptions);
       }
     };
     loadConfig();
-  }, []);
+  }, [isLoggedIn]);
 
-  // AUTO HIDE MESSAGE
+  // PERSIST EXPIRED TIMERS — runs whenever customers or now changes.
+  // If admin panel detects a timer has expired and DB still shows rewardUnlocked,
+  // write rewardExpired:true permanently so it survives page refreshes.
   useEffect(() => {
-    if (message) {
-      const timeout = setTimeout(() => setMessage(""), 4000);
-      return () => clearTimeout(timeout);
-    }
-  }, [message]);
-
-  // LOAD CUSTOMER
-  useEffect(() => {
-    const fetchCustomer = async () => {
-      if (mobile.length < 10) return;
-      const normalizedMobile = normalizeMobile(mobile);
-      const customerRef = doc(db, "customers", normalizedMobile);
-      const customerSnap = await getDoc(customerRef);
-      if (customerSnap.exists()) {
-        const data = customerSnap.data();
-        if (data.selectedReward) setSelectedReward(data.selectedReward);
-        if (data.rewardUnlocked && !data.rewardClaimed) {
-          if (data.claimStartTime) {
-            const diff =
-              claimSeconds -
-              Math.floor((Date.now() - data.claimStartTime) / 1000);
-            if (diff <= 0) {
-              await updateDoc(customerRef, {
-                rewardUnlocked: false,
-                rewardClaimed: false,
-                rewardExpired: true,
-                selectedReward: "",
-                claimStartTime: null,
-              });
-              setShowExpiredPopup(true);
-            } else {
-              setClaimStarted(true);
-              setTimeLeft(diff);
-              setShowCountdownPopup(true);
-            }
-          } else {
-            setShowCountdownPopup(true);
+    if (!isLoggedIn || customers.length === 0) return;
+    customers.forEach(async (c) => {
+      if (
+        c.rewardUnlocked &&
+        !c.rewardClaimed &&
+        !c.rewardExpired &&
+        c.claimStartTime
+      ) {
+        const claimSeconds = claimHours * 3600;
+        const elapsed = Math.floor((now - c.claimStartTime) / 1000);
+        if (elapsed > claimSeconds) {
+          // Persist to Firestore — permanent, survives refreshes
+          try {
+            await updateDoc(doc(db, "customers", c.mobile), {
+              rewardUnlocked: false,
+              rewardExpired: true,
+              selectedReward: "",
+              claimStartTime: null,
+            });
+          } catch {
+            // silently ignore — will retry on next tick
           }
         }
       }
-    };
-    fetchCustomer();
-  }, [mobile]);
+    });
+  }, [customers, now, claimHours, isLoggedIn]);
 
-  // TIMER
+  // FILTER CODES
   useEffect(() => {
-    let timer: any;
-    if (claimStarted && timeLeft > 0) {
-      timer = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
+    let filtered = [...codes];
+    if (codeFilter === "used") filtered = filtered.filter((c) => c.used);
+    if (codeFilter === "unused") filtered = filtered.filter((c) => !c.used);
+    if (codeFilter === "printed") filtered = filtered.filter((c) => c.printed);
+    if (codeFilter === "unprinted")
+      filtered = filtered.filter((c) => !c.printed);
+    if (codeSearch)
+      filtered = filtered.filter((c) =>
+        c.code?.toLowerCase().includes(codeSearch.toLowerCase())
+      );
+    setFilteredCodes(filtered);
+  }, [codes, codeFilter, codeSearch]);
+
+  // FILTER CUSTOMERS
+  useEffect(() => {
+    const filtered = customers.filter(
+      (c) =>
+        c.name?.toLowerCase().includes(customerSearch.toLowerCase()) ||
+        c.mobile?.includes(customerSearch)
+    );
+    setFilteredCustomers(filtered);
+  }, [customerSearch, customers]);
+
+  // ── HELPERS ─────────────────────────────────────────────────────────────────
+
+  // Countdown timer display — also checks DB rewardExpired flag
+  const getCountdown = (c: any) => {
+    // If DB already marked expired — show permanently
+    if (c.rewardExpired && !c.rewardClaimed) {
+      return { text: "EXPIRED", expired: true, warning: false };
     }
-    if (timeLeft <= 0 && claimStarted) {
-      setClaimStarted(false);
-      setShowCountdownPopup(false);
-      setShowExpiredPopup(true);
-      const normalizedMobile = normalizeMobile(mobile);
-      if (normalizedMobile.length === 10) {
-        updateDoc(doc(db, "customers", normalizedMobile), {
-          rewardUnlocked: false,
-          rewardClaimed: false,
-          rewardExpired: true,
-          selectedReward: "",
-          claimStartTime: null,
+    if (!c.rewardUnlocked || !c.claimStartTime) return null;
+    const claimSeconds = claimHours * 3600;
+    const elapsed = Math.floor((now - c.claimStartTime) / 1000);
+    const left = claimSeconds - elapsed;
+    if (left <= 0) return { text: "EXPIRED", expired: true, warning: false };
+    const h = Math.floor(left / 3600);
+    const m = Math.floor((left % 3600) / 60);
+    const s = left % 60;
+    return { text: `${h}h ${m}m ${s}s`, expired: false, warning: left < 3600 };
+  };
+
+  // Total wins from rewardHistory records (source of truth)
+  const getCustomerWins = (mobile: string) =>
+    rewardHistory.filter((h) => h.mobile === mobile).length;
+
+  // ── ACTIONS ─────────────────────────────────────────────────────────────────
+
+  // OPTION B — secure code generation: PREFIX + 5 digits + hyphen + 3 alphanumeric
+  const generateCodes = async () => {
+    try {
+      const prefixes = ["HM", "DW", "FL", "PC"];
+      // No O, 0, 1, I to avoid visual confusion when printed
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      const batch = writeBatch(db);
+      for (let i = 0; i < codeCount; i++) {
+        const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+        const num = Math.floor(10000 + Math.random() * 90000);
+        const suffix = Array.from(
+          { length: 3 },
+          () => chars[Math.floor(Math.random() * chars.length)]
+        ).join("");
+        const code = `${prefix}${num}-${suffix}`;
+        batch.set(doc(db, "codes", code), {
+          code,
+          used: false,
+          printed: false,
+          createdAt: Date.now(),
         });
       }
-    }
-    return () => clearInterval(timer);
-  }, [claimStarted, timeLeft]);
-
-  // SCRATCH CARD CANVAS — premium colorful surface
-  useEffect(() => {
-    if (!showScratchCard) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    // Rich blue-purple-gold gradient surface
-    const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    grad.addColorStop(0, "#1E3A8A");
-    grad.addColorStop(0.35, "#2563EB");
-    grad.addColorStop(0.65, "#7C3AED");
-    grad.addColorStop(1, "#1D4ED8");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Subtle radial glow spots
-    const glow1 = ctx.createRadialGradient(60, 40, 0, 60, 40, 90);
-    glow1.addColorStop(0, "rgba(251,191,36,0.25)");
-    glow1.addColorStop(1, "transparent");
-    ctx.fillStyle = glow1;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const glow2 = ctx.createRadialGradient(
-      canvas.width - 50,
-      canvas.height - 30,
-      0,
-      canvas.width - 50,
-      canvas.height - 30,
-      80
-    );
-    glow2.addColorStop(0, "rgba(167,139,250,0.3)");
-    glow2.addColorStop(1, "transparent");
-    ctx.fillStyle = glow2;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Diagonal shimmer stripes
-    for (let i = -2; i < 10; i++) {
-      ctx.beginPath();
-      const x = (canvas.width / 7) * i;
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x + 40, canvas.height);
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
-      ctx.lineWidth = 18;
-      ctx.stroke();
-    }
-
-    // Dot pattern
-    ctx.fillStyle = "rgba(255,255,255,0.05)";
-    for (let r = 0; r < canvas.height; r += 14) {
-      for (let c = 0; c < canvas.width; c += 14) {
-        ctx.beginPath();
-        ctx.arc(c, r, 1.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    // Gold star decorations
-    const drawStar = (x: number, y: number, size: number, alpha: number) => {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.fillStyle = `rgba(251,191,36,${alpha})`;
-      ctx.font = `${size}px serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("✦", 0, 0);
-      ctx.restore();
-    };
-    drawStar(28, 22, 14, 0.6);
-    drawStar(canvas.width - 28, canvas.height - 22, 14, 0.55);
-    drawStar(canvas.width - 24, 24, 10, 0.4);
-    drawStar(24, canvas.height - 20, 10, 0.4);
-
-    // Centre text with glow
-    ctx.save();
-    ctx.shadowColor = "rgba(251,191,36,0.6)";
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = "#FBBF24";
-    ctx.font = "bold 15px 'DM Sans','Segoe UI',sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(
-      "✦  Scratch to Reveal Your Reward  ✦",
-      canvas.width / 2,
-      canvas.height / 2 - 10
-    );
-    ctx.restore();
-
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
-    ctx.font = "12px 'DM Sans','Segoe UI',sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(
-      "Use finger or mouse",
-      canvas.width / 2,
-      canvas.height / 2 + 14
-    );
-  }, [showScratchCard]);
-
-  // SCRATCH LOGIC — unchanged
-  const getScratchPos = (e: any, canvas: HTMLCanvasElement) => {
-    const rect = canvas.getBoundingClientRect();
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return {
-      x: (clientX - rect.left) * (canvas.width / rect.width),
-      y: (clientY - rect.top) * (canvas.height / rect.height),
-    };
-  };
-
-  const scratch = (e: any) => {
-    if (!isDrawing.current) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const pos = getScratchPos(e, canvas);
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, 28, 0, Math.PI * 2);
-    ctx.fill();
-    checkScratchPercent(ctx, canvas);
-  };
-
-  const checkScratchPercent = (
-    ctx: CanvasRenderingContext2D,
-    canvas: HTMLCanvasElement
-  ) => {
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    let transparent = 0;
-    for (let i = 3; i < imageData.data.length; i += 4) {
-      if (imageData.data[i] === 0) transparent++;
-    }
-    const percent = (transparent / (canvas.width * canvas.height)) * 100;
-    setScratchPercent(percent);
-    // Trigger at 1% — reveals on first scratch gesture
-    if (percent > 1 && !scratched) {
-      setScratched(true);
-      // Instantly wipe remaining canvas so reward shows fully
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      setScratchPercent(100);
-      // Hide canvas element entirely so reward layer is crystal clear
-      setRevealed(true);
-      // Hold on revealed reward for ~2.8s then move to countdown popup
-      setTimeout(() => {
-        setShowScratchCard(false);
-        setRevealed(false);
-        setShowCountdownPopup(true);
-        setClaimStarted(true);
-        setTimeLeft(claimSeconds);
-      }, 2800);
+      await batch.commit();
+      showToast(`${codeCount} codes generated successfully`);
+    } catch {
+      showToast("Failed to generate codes", "error");
     }
   };
 
-  // VALIDATION
-  const validateMobile = (num: string): boolean =>
-    /^[6-9][0-9]{9}$/.test(num.trim());
-  const normalizeMobile = (num: string): string => num.trim();
+  const togglePrinted = async (code: string, current: boolean) => {
+    await updateDoc(doc(db, "codes", code), { printed: !current });
+  };
 
-  // SUBMIT — unchanged
-  const handleSubmit = async () => {
-    if (!name || !mobile || !code) {
-      setMessage("Please fill all details");
-      return;
-    }
-    if (mobile.length !== 10 || !validateMobile(mobile)) {
-      setMessage("Enter valid 10-digit mobile number starting with 6-9");
-      return;
-    }
-    setLoading(true);
+  const deleteCode = async (code: string) => {
+    if (!window.confirm(`Delete code ${code}?`)) return;
+    await deleteDoc(doc(db, "codes", code));
+    showToast("Code deleted");
+  };
+
+  // RESET TIMER — restarts the countdown from now. Touches ONLY claimStartTime.
+  // All customer data, reward history, claimed rewards, win count — untouched.
+  const resetTimer = async (mobile: string, name: string) => {
     try {
-      const cleanCode = code.trim().toUpperCase();
-      const codeRef = doc(db, "codes", cleanCode);
-      const codeSnap = await getDoc(codeRef);
-
-      // CHECK IF CUSTOMER IS BLOCKED before doing anything
-      const normalizedMobileCheck = normalizeMobile(mobile);
-      const customerCheckRef = doc(db, "customers", normalizedMobileCheck);
-      const customerCheckSnap = await getDoc(customerCheckRef);
-      if (customerCheckSnap.exists() && customerCheckSnap.data().blocked) {
-        setMessage(
-          "Your account has been temporarily restricted. Please contact support for assistance."
-        );
-        return;
-      }
-      if (!codeSnap.exists()) {
-        setMessage("Invalid Product Code");
-        return;
-      }
-      if (codeSnap.data().used) {
-        setMessage("This code has already been used");
-        return;
-      }
-      await updateDoc(codeRef, { used: true, usedAt: Date.now() });
-
-      const randomReward = rewards[Math.floor(Math.random() * rewards.length)];
-      setScratchReward(randomReward);
-      setSelectedReward(randomReward);
-
-      const normalizedMobile = normalizeMobile(mobile);
-      const customerRef = doc(db, "customers", normalizedMobile);
-      const custSnap = await getDoc(customerRef);
-      const prevTotal = custSnap.exists()
-        ? custSnap.data().totalRewardsWon || 0
-        : 0;
-
-      await setDoc(
-        customerRef,
-        {
-          name,
-          mobile: normalizedMobile,
-          rewardUnlocked: true,
-          rewardClaimed: false,
-          rewardExpired: false,
-          selectedReward: randomReward,
-          claimStartTime: Date.now(),
-          lastScanDate: Date.now(),
-          totalRewardsWon: prevTotal,
-        },
-        { merge: true }
-      );
-
-      setCode("");
-      setScratched(false);
-      setRevealed(false);
-      setScratchPercent(0);
-      setShowScratchCard(true);
-    } catch (err) {
-      console.log(err);
-      setMessage("Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // LIVE CLOCK — updates every second on the countdown screen
-  const [liveTime, setLiveTime] = useState(() =>
-    new Date().toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true,
-    })
-  );
-  useEffect(() => {
-    if (!showCountdownPopup) return;
-    const interval = setInterval(() => {
-      setLiveTime(
-        new Date().toLocaleTimeString("en-IN", {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hour12: true,
-        })
-      );
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [showCountdownPopup]);
-
-  // CLAIM HANDLER — extracted so confirm dialog can call it
-  const handleClaim = async () => {
-    try {
-      const normalizedMobile = normalizeMobile(mobile);
-      const customerRef = doc(db, "customers", normalizedMobile);
-      await addDoc(collection(db, "rewardHistory"), {
+      await updateDoc(doc(db, "customers", mobile), {
+        claimStartTime: Date.now(), // restart countdown from this moment
+      });
+      await addDoc(collection(db, "adminLogs"), {
+        action: "RESET_TIMER",
+        customerMobile: mobile,
         customerName: name,
-        mobile: normalizedMobile,
-        reward: selectedReward,
-        claimedAt: Date.now(),
-        claimedAtFormatted: new Date().toLocaleString("en-IN"),
+        performedAt: Date.now(),
+        performedAtFormatted: new Date().toLocaleString("en-IN"),
       });
-      const custSnap = await getDoc(customerRef);
-      const prevTotal = custSnap.exists()
-        ? custSnap.data().totalRewardsWon || 0
-        : 0;
-      await updateDoc(customerRef, {
-        rewardUnlocked: false,
-        rewardClaimed: true,
-        selectedReward: "",
-        claimStartTime: null,
-        totalRewardsWon: prevTotal + 1,
-        lastRewardClaimed: selectedReward,
-        lastClaimedAt: Date.now(),
-      });
-      setShowConfirmDialog(false);
-      setShowCountdownPopup(false);
-      setClaimStarted(false);
-      setClaimedRewardName(selectedReward);
-      setSelectedReward("");
-      setTimeLeft(claimSeconds);
-      setShowSuccessPopup(true);
-    } catch (error) {
-      console.log(error);
-      setMessage("Something went wrong");
+      showToast(`Timer reset for ${name}`);
+    } catch {
+      showToast("Reset failed", "error");
     }
   };
 
-  const formatTime = (secs: number) => {
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = secs % 60;
-    return {
-      h: String(h).padStart(2, "0"),
-      m: String(m).padStart(2, "0"),
-      s: String(s).padStart(2, "0"),
-    };
+  // BLOCK CUSTOMER
+  const blockCustomer = async (mobile: string, name: string) => {
+    try {
+      await updateDoc(doc(db, "customers", mobile), { blocked: true });
+      await addDoc(collection(db, "adminLogs"), {
+        action: "BLOCK_CUSTOMER",
+        customerMobile: mobile,
+        customerName: name,
+        performedAt: Date.now(),
+        performedAtFormatted: new Date().toLocaleString("en-IN"),
+      });
+      showToast(`${name} has been blocked`);
+    } catch {
+      showToast("Block failed", "error");
+    }
   };
-  const t = formatTime(timeLeft);
 
+  // UNBLOCK CUSTOMER
+  const unblockCustomer = async (mobile: string, name: string) => {
+    try {
+      await updateDoc(doc(db, "customers", mobile), { blocked: false });
+      await addDoc(collection(db, "adminLogs"), {
+        action: "UNBLOCK_CUSTOMER",
+        customerMobile: mobile,
+        customerName: name,
+        performedAt: Date.now(),
+        performedAtFormatted: new Date().toLocaleString("en-IN"),
+      });
+      showToast(`${name} has been unblocked`);
+    } catch {
+      showToast("Unblock failed", "error");
+    }
+  };
+
+  const deleteCustomer = async (mobile: string) => {
+    if (!window.confirm("Delete this customer permanently?")) return;
+    await deleteDoc(doc(db, "customers", mobile));
+    showToast("Customer deleted");
+  };
+
+  // EXPORT CSV — updated: no stamps, uses history-based win count
+  const exportCSV = () => {
+    const headers = ["Name", "Mobile", "Total Wins", "Last Reward", "Blocked"];
+    const rows = customers.map((c) => [
+      c.name,
+      c.mobile,
+      getCustomerWins(c.mobile),
+      c.lastRewardClaimed || "-",
+      c.blocked ? "Yes" : "No",
+    ]);
+    const csv = [headers, ...rows].map((e) => e.join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "HM_Customers.csv";
+    a.click();
+  };
+
+  const exportCodesCSV = () => {
+    const summary = [
+      ["SUMMARY", "", "", ""],
+      ["Total Codes", codes.length, "", ""],
+      ["Used Codes", codes.filter((c) => c.used).length, "", ""],
+      ["Unused Codes", codes.filter((c) => !c.used).length, "", ""],
+      ["Printed Codes", codes.filter((c) => c.printed).length, "", ""],
+      ["", "", "", ""],
+    ];
+    const headers = ["Code", "Status", "Printed", "Generated Date"];
+    const rows = codes.map((c) => [
+      c.code,
+      c.used ? "Used" : "Unused",
+      c.printed ? "Printed" : "Not Printed",
+      c.createdAt ? new Date(c.createdAt).toLocaleDateString("en-IN") : "-",
+    ]);
+    const csv = [...summary, headers, ...rows]
+      .map((e) => e.join(","))
+      .join("\n");
+    const today = new Date().toISOString().slice(0, 10);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `HM_Codes_${today}.csv`;
+    a.click();
+  };
+
+  // ARCHIVE & CLEAN USED CODES
+  const [cleanDays, setCleanDays] = useState(90);
+  const [cleaning, setCleaning] = useState(false);
+
+  const archiveAndClean = async () => {
+    const cutoff = Date.now() - cleanDays * 24 * 60 * 60 * 1000;
+    const toDelete = codes.filter(
+      (c) => c.used && c.createdAt && c.createdAt < cutoff
+    );
+    if (toDelete.length === 0) {
+      showToast(`No used codes older than ${cleanDays} days found`, "error");
+      return;
+    }
+    const confirmed = window.confirm(
+      `This will:\n1. Download a CSV backup of ${toDelete.length} used codes\n2. Permanently delete them from Firebase\n\nProceed?`
+    );
+    if (!confirmed) return;
+
+    const summary = [
+      ["ARCHIVE BACKUP", "", "", ""],
+      [`Deleted on`, new Date().toLocaleDateString("en-IN"), "", ""],
+      [`Codes older than ${cleanDays} days`, toDelete.length, "", ""],
+      ["", "", "", ""],
+    ];
+    const headers = ["Code", "Status", "Printed", "Generated Date"];
+    const rows = toDelete.map((c) => [
+      c.code,
+      "Used",
+      c.printed ? "Printed" : "Not Printed",
+      c.createdAt ? new Date(c.createdAt).toLocaleDateString("en-IN") : "-",
+    ]);
+    const csv = [...summary, headers, ...rows]
+      .map((e) => e.join(","))
+      .join("\n");
+    const today = new Date().toISOString().slice(0, 10);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `HM_ArchivedCodes_${today}.csv`;
+    a.click();
+
+    setCleaning(true);
+    try {
+      const batchSize = 500;
+      for (let i = 0; i < toDelete.length; i += batchSize) {
+        const batch = writeBatch(db);
+        toDelete.slice(i, i + batchSize).forEach((c) => {
+          batch.delete(doc(db, "codes", c.code));
+        });
+        await batch.commit();
+      }
+      showToast(`${toDelete.length} used codes archived & deleted`);
+    } catch {
+      showToast("Delete failed — CSV backup was downloaded", "error");
+    }
+    setCleaning(false);
+  };
+
+  const exportHistoryCSV = () => {
+    const headers = ["Customer Name", "Mobile", "Reward", "Claimed At"];
+    const rows = rewardHistory.map((h) => [
+      h.customerName,
+      h.mobile,
+      h.reward,
+      h.claimedAtFormatted || "-",
+    ]);
+    const csv = [headers, ...rows].map((e) => e.join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "HM_RewardHistory.csv";
+    a.click();
+  };
+
+  const deleteHistoryRecords = async () => {
+    if (selectedHistory.length === 0) return;
+    if (!window.confirm(`Delete ${selectedHistory.length} selected record(s)?`))
+      return;
+    try {
+      const batch = writeBatch(db);
+      selectedHistory.forEach((id) =>
+        batch.delete(doc(db, "rewardHistory", id))
+      );
+      await batch.commit();
+      setSelectedHistory([]);
+      showToast(`${selectedHistory.length} records deleted`);
+    } catch {
+      showToast("Delete failed", "error");
+    }
+  };
+
+  const toggleSelectHistory = (id: string) =>
+    setSelectedHistory((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+
+  const toggleSelectAll = () => {
+    if (selectedHistory.length === filteredHistory.length) {
+      setSelectedHistory([]);
+    } else {
+      setSelectedHistory(filteredHistory.map((h) => h.id));
+    }
+  };
+
+  const saveConfig = async () => {
+    setConfigSaving(true);
+    try {
+      await setDoc(doc(db, "config", "rewards"), { claimHours, rewardOptions });
+      showToast("Configuration saved");
+    } catch {
+      showToast("Save failed", "error");
+    }
+    setConfigSaving(false);
+  };
+
+  const addReward = () => {
+    if (!newReward.trim()) return;
+    setRewardOptions([...rewardOptions, newReward.trim()]);
+    setNewReward("");
+  };
+
+  const deleteReward = (i: number) =>
+    setRewardOptions(rewardOptions.filter((_, idx) => idx !== i));
+
+  const saveEditReward = (i: number) => {
+    const updated = [...rewardOptions];
+    updated[i] = editRewardVal;
+    setRewardOptions(updated);
+    setEditingReward(null);
+  };
+
+  // ── COMPUTED VALUES ──────────────────────────────────────────────────────────
+  const totalRewards = rewardHistory.length;
+  const activeTimers = customers.filter(
+    (c) => c.rewardUnlocked && !c.rewardClaimed
+  );
+  const blockedCount = customers.filter((c) => c.blocked).length;
+  const totalCodes = codes.length;
+  const usedCodes = codes.filter((c) => c.used).length;
+  const unusedCodes = codes.filter((c) => !c.used).length;
+  const printedCodes = codes.filter((c) => c.printed).length;
+
+  const filteredHistory = rewardHistory.filter((h) => {
+    const matchSearch =
+      !historySearch ||
+      h.customerName?.toLowerCase().includes(historySearch.toLowerCase()) ||
+      h.mobile?.includes(historySearch) ||
+      h.reward?.toLowerCase().includes(historySearch.toLowerCase());
+    const matchReward =
+      historyRewardFilter === "all" ||
+      h.reward?.toLowerCase().includes(historyRewardFilter.toLowerCase());
+    const nowTs = Date.now();
+    const claimedAt = h.claimedAt || 0;
+    const matchDate =
+      historyDateFilter === "all"
+        ? true
+        : historyDateFilter === "today"
+        ? new Date(claimedAt).toDateString() === new Date().toDateString()
+        : historyDateFilter === "week"
+        ? nowTs - claimedAt < 7 * 86400000
+        : historyDateFilter === "month"
+        ? nowTs - claimedAt < 30 * 86400000
+        : true;
+    return matchSearch && matchReward && matchDate;
+  });
+
+  const handleLogin = () => {
+    if (password === process.env.REACT_APP_ADMIN_PASSWORD) {
+      setIsLoggedIn(true);
+    } else {
+      showToast("Wrong Password", "error");
+    }
+  };
+
+  // ── LOGIN SCREEN ─────────────────────────────────────────────────────────────
+  if (!isLoggedIn) {
+    return (
+      <div className="loginPage">
+        {toast && <div className={`adminToast ${toastType}`}>{toast}</div>}
+        <div className="loginBox">
+          <h1>Hygiene Matic Admin</h1>
+          <p>Rewards Hub — Control Panel</p>
+          <div className="passwordWrapper">
+            <input
+              type={showPassword ? "text" : "password"}
+              placeholder="Enter Admin Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+            />
+            <button
+              className="eyeBtn"
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? "🙈" : "👁️"}
+            </button>
+          </div>
+          <button onClick={handleLogin}>Login</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── MAIN PANEL ───────────────────────────────────────────────────────────────
   return (
-    <>
-      {/* TOAST */}
-      {message && (
-        <div
-          className={`toastPopup ${
-            message.includes("Invalid") || message.includes("wrong")
-              ? "error"
-              : message.includes("used")
-              ? "warning"
-              : ""
-          }`}
-        >
-          <AlertCircle size={16} className="toastIcon" />
-          {message}
+    <div className="adminPage">
+      {toast && <div className={`adminToast ${toastType}`}>{toast}</div>}
+
+      {/* CONFIRM DIALOG */}
+      {confirmDialog.open && (
+        <div className="adminOverlay">
+          <div className="adminConfirmBox">
+            <h3 className="adminConfirmTitle">{confirmDialog.title}</h3>
+            <p className="adminConfirmMsg">{confirmDialog.message}</p>
+            <div className="adminConfirmBtns">
+              <button className="adminConfirmCancel" onClick={closeConfirm}>
+                Cancel
+              </button>
+              <button
+                className="adminConfirmOk"
+                onClick={() => {
+                  confirmDialog.onConfirm();
+                  closeConfirm();
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      <div className="app">
-        {/* ── HEADER ──────────────────────────────────────────────────────── */}
-        <header className="header">
-          <div className="headerGlow" aria-hidden="true" />
-          <div className="headerShine" aria-hidden="true" />
-          <div className="logoBox">
-            <div className="logoWrap">
-              <img src={logo} alt="HM Logo" className="hmLogo" />
-            </div>
-            <div className="logoText">
-              <h1>Hygiene Matic</h1>
-              {/* FIX #4: Updated tagline */}
-              <span className="logoSub">Apno Ki Suraksha Ke Liye</span>
-            </div>
-          </div>
-          <div className="rewardBadge">
-            <Sparkles size={14} className="badgeIcon" />
-            <span>Rewards</span>
-          </div>
-        </header>
-
-        {/* ── HERO — FIX #2 & #3: compact, tighter title spacing ─────────── */}
-        <section className="hero">
-          <div className="heroBg" aria-hidden="true" />
-          <div className="heroShine" aria-hidden="true" />
-          <div className="heroContent">
-            <div className="offerTag">
-              <Zap size={12} />
-              NEW LAUNCH OFFER
-            </div>
-            {/* FIX #3: single h2, tighter line-height, no <br> gap */}
-            <h2 className="heroHeading">
-              <span className="heroTitle1">Hygiene Matic</span>
-              <span className="heroTitle2">Rewards Hub</span>
-            </h2>
-            <p className="heroDesc">
-              Buy a Hygiene Matic combo pack, enter your unique product code and
-              instantly win exciting rewards!
-            </p>
-          </div>
-        </section>
-
-        {/* ── INPUT CARD ──────────────────────────────────────────────────── */}
-        <section className="inputCard">
-          <div className="inputCardHeader">
-            <div className="inputCardIcon">
-              <Gift size={20} />
-            </div>
-            <div>
-              <h3>Enter Product Code</h3>
-              <span>Example: DW48291 / FL19482</span>
-            </div>
-          </div>
-          <div className="inputGroup">
-            <label className="inputLabel">Your Name</label>
-            <input
-              type="text"
-              placeholder="Enter your full name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div className="inputGroup">
-            <label className="inputLabel">Mobile Number</label>
-            <input
-              type="tel"
-              placeholder="10-digit mobile number"
-              value={mobile}
-              onChange={(e) => {
-                const val = e.target.value.replace(/[^0-9]/g, "").slice(0, 10);
-                setMobile(val);
-              }}
-              maxLength={10}
-              inputMode="numeric"
-              pattern="[0-9]{10}"
-            />
-          </div>
-          <div className="inputGroup">
-            <label className="inputLabel">Unique Product Code</label>
-            <input
-              type="text"
-              placeholder="Enter code from your pack"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-          </div>
-          <button
-            className="submitBtn"
-            onClick={handleSubmit}
-            disabled={loading}
-          >
-            {loading ? (
-              <span className="loadingDots">
-                <span className="spinnerRing" /> Verifying…
-              </span>
-            ) : (
-              <>
-                <Sparkles size={17} /> Verify &amp; Win Reward
-              </>
-            )}
-          </button>
-          <small className="inputNote">
-            One reward valid per combo pack only.
-          </small>
-        </section>
-
-        {/* ── HOW IT WORKS — FIX #5: overflow visible on stepCard ────────── */}
-        <section className="howWorksSection">
-          <div className="sectionLabel">
-            <Star size={13} /> Simple Process
-          </div>
-          <h2>How It Works?</h2>
-          <p className="howSub">3 simple steps to your instant reward</p>
-          <div className="stepsContainer">
-            {[
-              {
-                n: 1,
-                icon: <QrCode size={34} />,
-                title: "Scan QR Code",
-                desc: "Scan the QR code printed on your Hygiene Matic combo pack to open this rewards page.",
-              },
-              {
-                n: 2,
-                icon: <ShieldCheck size={34} />,
-                title: "Enter Unique Code",
-                desc: "Enter the unique product code found inside your combo pack to verify your purchase.",
-              },
-              {
-                n: 3,
-                icon: <Gift size={34} />,
-                title: "Scratch & Win",
-                desc: "Scratch the digital card to instantly reveal your reward. Every purchase is a guaranteed win!",
-              },
-            ].map(({ n, icon, title, desc }) => (
-              <div className="stepCard" key={n}>
-                {/* FIX #5: badge is inside card flow, not absolute-clipped */}
-                <div className="stepNumberBadge">{n}</div>
-                <div className="stepIcon">{icon}</div>
-                <h3>{title}</h3>
-                <p>{desc}</p>
+      {/* HISTORY MODAL */}
+      {historyModal.open && historyModal.customer && (
+        <div className="adminOverlay">
+          <div className="adminHistoryModal">
+            <div className="adminHistoryModalHeader">
+              <div>
+                <h3>{historyModal.customer.name}</h3>
+                <span>{historyModal.customer.mobile}</span>
               </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ── INSTANT REWARD SECTION ──────────────────────────────────────── */}
-        <section className="bigRewardSection">
-          <div className="bigRewardOrb bigRewardOrb1" aria-hidden="true" />
-          <div className="bigRewardOrb bigRewardOrb2" aria-hidden="true" />
-          <div className="bigRewardInner">
-            <div className="bigRewardBadge">
-              <Trophy size={12} /> GUARANTEED REWARDS
-            </div>
-            <h2 className="bigRewardHeading">
-              Every Purchase <span className="bigRewardAccent">Wins!</span>
-            </h2>
-            <p className="bigRewardSub">
-              Enter your unique code and scratch to instantly reveal your reward
-            </p>
-            <div className="rewardCardsRow">
-              {[
-                { icon: <Package size={15} />, label: "Free Products" },
-                { icon: <Coins size={15} />, label: "Cashback" },
-                { icon: <Star size={15} />, label: "Special Offers" },
-              ].map(({ icon, label }) => (
-                <div className="rewardPill" key={label}>
-                  <span className="rewardPillIcon">{icon}</span>
-                  {label}
-                </div>
-              ))}
-            </div>
-            <div className="scratchPreviewCard">
-              <div className="scratchPreviewShimmer" />
-              <div className="scratchPreviewContent">
-                <div className="scratchPreviewLines">
-                  <div className="scratchLine long" />
-                  <div className="scratchLine short" />
-                </div>
-                <div className="scratchTag">
-                  SCRATCH
-                  <br />& WIN
-                </div>
-              </div>
-            </div>
-            <p className="bigRewardFootnote">
-              One guaranteed reward with every combo pack purchase
-            </p>
-          </div>
-        </section>
-
-        {/* ── FAQ ──────────────────────────────────────────────────────────── */}
-        <section className="faqSection">
-          <div className="sectionLabel dark">
-            <Star size={13} /> Help Center
-          </div>
-          <h2>Frequently Asked Questions</h2>
-          {[
-            {
-              id: 1,
-              q: "How do I find my product code?",
-              a: "Your unique product code is printed inside every Hygiene Matic combo pack.",
-            },
-            {
-              id: 2,
-              q: "Can I use the same code twice?",
-              a: "No. Each product code can only be redeemed once.",
-            },
-            {
-              id: 3,
-              q: "Do I win a reward every time?",
-              a: "Yes! Every valid unique code gives you a guaranteed instant reward. Scratch the card to reveal it.",
-            },
-            { id: 4, q: "How long do I have to claim my reward?", a: null },
-          ].map(({ id, q, a }) => (
-            <div
-              className={`faqItem ${openFAQ === id ? "faqOpen" : ""}`}
-              key={id}
-            >
-              <div
-                className="faqQuestion"
-                onClick={() => setOpenFAQ(openFAQ === id ? null : id)}
+              <button
+                className="adminModalClose"
+                onClick={() => setHistoryModal({ open: false, customer: null })}
               >
-                <span>{q}</span>
-                {openFAQ === id ? (
-                  <ChevronUp size={17} />
-                ) : (
-                  <ChevronDown size={17} />
-                )}
-              </div>
-              {openFAQ === id && (
-                <div className="faqAnswer">
-                  {a ?? (
-                    <>
-                      You must claim your reward within{" "}
-                      <strong>
-                        {Math.floor(claimSeconds / 3600)} hour
-                        {Math.floor(claimSeconds / 3600) !== 1 ? "s" : ""}
-                      </strong>{" "}
-                      of scratching the card from the same retailer. This is
-                      configured by the reward program and may change.
-                    </>
-                  )}
-                </div>
+                ✕
+              </button>
+            </div>
+            <div className="adminHistoryModalBody">
+              {rewardHistory.filter(
+                (h) => h.mobile === historyModal.customer.mobile
+              ).length === 0 ? (
+                <p className="adminHistoryEmpty">
+                  No reward history for this customer.
+                </p>
+              ) : (
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Reward</th>
+                      <th>Claimed At</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rewardHistory
+                      .filter((h) => h.mobile === historyModal.customer.mobile)
+                      .map((h, i) => (
+                        <tr key={h.id}>
+                          <td>{i + 1}</td>
+                          <td>{h.reward}</td>
+                          <td>{h.claimedAtFormatted || "-"}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
               )}
             </div>
-          ))}
-        </section>
-
-        {/* ── FOOTER — tagline + social links ───────────────────────────── */}
-        <footer className="footer">
-          <div className="footerInner">
-            <img src={logo} alt="HM" className="footerLogo" />
-            <h2>Hygiene Matic</h2>
-            <p className="footerTagline">Apno Ki Suraksha Ke Liye</p>
-            <p className="footerSub">Smart Cleaning • Instant Rewards</p>
-
-            {/* Social links */}
-            <div className="footerSocial">
-              <a
-                href="https://hygienematic.in/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="footerSocialLink"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="2" y1="12" x2="22" y2="12" />
-                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                </svg>
-                hygienematic.in
-              </a>
-              <a
-                href="https://www.instagram.com/hygienematic.in"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="footerSocialLink"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
-                </svg>
-                @hygienematic.in
-              </a>
-            </div>
-
-            <div className="footerDivider" />
-            <span>© 2026 Hygiene Matic. All Rights Reserved.</span>
           </div>
-        </footer>
+        </div>
+      )}
 
-        {/* ── SCRATCH CARD POPUP — FIX #1: premium colorful card ─────────── */}
-        {showScratchCard && (
-          <div className="popupOverlay">
-            <div className="scratchPopup">
-              {/* Premium card header */}
-              <div className="scratchPopupHeader">
-                <div className="scratchTrophyRing">
-                  <Trophy size={22} />
-                </div>
-                <p className="scratchTitle">You've Won! Scratch to Reveal</p>
-                <p className="scratchSubtitle">
-                  Use your finger or mouse to scratch
-                </p>
-              </div>
+      {/* HEADER */}
+      <div className="adminHeader">
+        <div className="adminHeaderText">
+          <h1>Hygiene Matic Admin</h1>
+          <p>Rewards Hub — Control Panel</p>
+        </div>
+        <div className="adminHeaderBadge">Live Dashboard</div>
+      </div>
 
-              {/* Premium scratch area */}
-              <div className="scratchCardOuter">
-                {/* Glow pulse ring */}
-                <div className="scratchGlowRing" />
-                <div className="scratchWrapper">
-                  {/* Reward behind layer */}
+      {/* TABS */}
+      <div className="adminTabs">
+        {(
+          ["analytics", "codes", "rewards", "customers", "history"] as Tab[]
+        ).map((tab) => (
+          <button
+            key={tab}
+            className={`tabBtn ${activeTab === tab ? "activeTab" : ""}`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab === "analytics"
+              ? "Analytics"
+              : tab === "codes"
+              ? "Codes"
+              : tab === "rewards"
+              ? "Rewards Config"
+              : tab === "customers"
+              ? "Customers"
+              : "History"}
+            {tab === "history" && rewardHistory.length > 0 && (
+              <span className="tabBadge">{rewardHistory.length}</span>
+            )}
+            {tab === "customers" && activeTimers.length > 0 && (
+              <span className="tabBadge timerBadge">{activeTimers.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ── ANALYTICS ─────────────────────────────────────────────────────────── */}
+      {activeTab === "analytics" && (
+        <div>
+          <div className="analyticsGrid">
+            <div className="analyticsCard">
+              <h2>{customers.length}</h2>
+              <p>Total Customers</p>
+            </div>
+            <div className="analyticsCard">
+              <h2>{totalRewards}</h2>
+              <p>Rewards Claimed</p>
+            </div>
+            <div className="analyticsCard highlight">
+              <h2>{activeTimers.length}</h2>
+              <p>Active Timers</p>
+            </div>
+            <div className="analyticsCard">
+              <h2>{totalCodes}</h2>
+              <p>Total Codes</p>
+            </div>
+            <div className="analyticsCard">
+              <h2>{unusedCodes}</h2>
+              <p>Unused Codes</p>
+            </div>
+            <div className="analyticsCard">
+              <h2>{blockedCount}</h2>
+              <p>Blocked Users</p>
+            </div>
+          </div>
+
+          {activeTimers.length > 0 && (
+            <div className="activeTimersBox">
+              <h3>Live Reward Timers</h3>
+              {activeTimers.map((c) => {
+                const countdown = getCountdown(c);
+                return (
                   <div
-                    className={`scratchRewardBehind ${
-                      revealed ? "revealed" : ""
-                    }`}
+                    key={c.id}
+                    className={`timerRow ${
+                      countdown.warning ? "timerWarning" : ""
+                    } ${countdown.expired ? "timerExpired" : ""}`}
                   >
-                    <div className="scratchRewardBehindBg" />
-                    <div className="scratchRewardBehindContent">
-                      <div className="scratchGiftCircle">
-                        <Gift size={30} />
-                      </div>
-                      <div className="scratchRewardName">{scratchReward}</div>
-                      <div className="scratchRewardLabel">YOUR REWARD</div>
+                    <div className="timerCustomer">
+                      <strong>{c.name}</strong>
+                      <span>{c.mobile}</span>
+                    </div>
+                    <div className="timerReward">
+                      {c.selectedReward || "Reward Pending"}
+                    </div>
+                    <div
+                      className={`timerCountdown ${
+                        countdown.warning ? "warningText" : ""
+                      }`}
+                    >
+                      {countdown.text}
                     </div>
                   </div>
-                  {/* Canvas overlay */}
-                  <canvas
-                    ref={canvasRef}
-                    width={300}
-                    height={170}
-                    className={`scratchCanvas ${revealed ? "revealed" : ""}`}
-                    onMouseDown={() => {
-                      isDrawing.current = true;
-                    }}
-                    onMouseMove={scratch}
-                    onMouseUp={() => {
-                      isDrawing.current = false;
-                    }}
-                    onMouseLeave={() => {
-                      isDrawing.current = false;
-                    }}
-                    onTouchStart={(e) => {
-                      e.preventDefault();
-                      isDrawing.current = true;
-                    }}
-                    onTouchMove={(e) => {
-                      e.preventDefault();
-                      scratch(e);
-                    }}
-                    onTouchEnd={() => {
-                      isDrawing.current = false;
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Progress */}
-              <div className="scratchProgressWrap">
-                <div className="scratchProgress">
-                  <div
-                    className="scratchProgressBar"
-                    style={{ width: `${Math.min(scratchPercent, 100)}%` }}
-                  />
-                </div>
-                <p className="scratchHint">
-                  {revealed ? (
-                    <span className="scratchRevealMsg">
-                      <CheckCircle2 size={14} /> Your reward is revealed!
-                    </span>
-                  ) : scratched ? (
-                    <span className="scratchRevealMsg">
-                      <CheckCircle2 size={14} /> Reward Revealed!
-                    </span>
-                  ) : (
-                    `${Math.round(scratchPercent)}% scratched`
-                  )}
-                </p>
-              </div>
+                );
+              })}
             </div>
+          )}
+
+          <button className="exportBtn" onClick={exportCSV}>
+            Download Customers CSV
+          </button>
+        </div>
+      )}
+
+      {/* ── CODES ─────────────────────────────────────────────────────────────── */}
+      {activeTab === "codes" && (
+        <div>
+          <div className="generatorBox">
+            <h3>Generate Reward Codes</h3>
+            <p className="generatorNote">
+              New format:{" "}
+              <code>PREFIX + 5 digits + hyphen + 3 alphanumeric</code>
+              &nbsp;(e.g. <strong>HM82341-K7X</strong>) — ~1.6 billion
+              combinations
+            </p>
+            <input
+              type="number"
+              value={codeCount}
+              min={1}
+              max={500}
+              onChange={(e) => setCodeCount(Number(e.target.value))}
+            />
+            <button className="generateBtn" onClick={generateCodes}>
+              Generate {codeCount} Codes
+            </button>
           </div>
-        )}
 
-        {/* ── COUNTDOWN POPUP ──────────────────────────────────────────────── */}
-        {showCountdownPopup && (
-          <div className="popupOverlay">
-            <div className="popup countdownPopup">
-              <div className="popupTopBand" />
-
-              {/* LIVE indicator — Sol 6: cannot be faked in a screenshot */}
-              <div className="liveRow">
-                <span className="liveDot" />
-                <span className="liveLabel">LIVE</span>
-                <span className="liveClock">{liveTime}</span>
-              </div>
-
-              <div className="rewardUnlockedTag">
-                <CheckCircle2 size={13} /> Reward Unlocked
-              </div>
-              <h2>
-                <Timer size={20} className="popupTitleIcon" /> Collect Your
-                Reward
-              </h2>
-              <h3 className="rewardNameBig">{selectedReward}</h3>
-
-              {/* Timer */}
-              <div className="timerDisplay">
-                <div className="timerBlock">
-                  <span className="timerDigit">{t.h}</span>
-                  <span className="timerUnit">hrs</span>
-                </div>
-                <span className="timerColon">:</span>
-                <div className="timerBlock">
-                  <span className="timerDigit">{t.m}</span>
-                  <span className="timerUnit">min</span>
-                </div>
-                <span className="timerColon">:</span>
-                <div className="timerBlock">
-                  <span className="timerDigit">{t.s}</span>
-                  <span className="timerUnit">sec</span>
-                </div>
-              </div>
-
-              {/* Steps — Sol 5: inline help */}
-              <div className="claimSteps">
-                <div className="claimStep">
-                  <div className="claimStepNum">1</div>
-                  <span>
-                    Visit the <strong>same store</strong> where you bought the
-                    product
-                  </span>
-                </div>
-                <div className="claimStep">
-                  <div className="claimStepNum">2</div>
-                  <span>
-                    Show this <strong>live screen</strong> to the shopkeeper
-                  </span>
-                </div>
-                <div className="claimStep">
-                  <div className="claimStepNum">3</div>
-                  <span>
-                    Press <strong>"I Received My Reward"</strong> after
-                    shopkeeper confirms
-                  </span>
-                </div>
-              </div>
-
-              {/* Sol 1 + Sol 2: renamed button → opens confirm dialog */}
-              <button
-                className="claimBtn"
-                onClick={() => setShowConfirmDialog(true)}
+          <div className="archiveBox">
+            <h4>Archive & Clean Used Codes</h4>
+            <p>
+              Download a CSV backup of old used codes, then permanently delete
+              them from Firebase to keep the database lean.
+            </p>
+            <div className="archiveControls">
+              <select
+                className="daysSelect"
+                value={cleanDays}
+                onChange={(e) => setCleanDays(Number(e.target.value))}
               >
-                <CheckCircle2 size={17} /> I Received My Reward
+                <option value={30}>Older than 30 days</option>
+                <option value={60}>Older than 60 days</option>
+                <option value={90}>Older than 90 days</option>
+                <option value={180}>Older than 180 days</option>
+              </select>
+              <button
+                className="archiveBtn"
+                onClick={archiveAndClean}
+                disabled={cleaning}
+              >
+                {cleaning ? "Archiving..." : "Archive & Delete"}
               </button>
-
-              {/* Help center — Sol 5 */}
-              <div className="helpCenter">
-                <p className="helpCenterTitle">
-                  <AlertCircle size={13} /> Need Help?
-                </p>
-                <div className="helpLinks">
-                  <a
-                    href="https://wa.me/919999999999?text=Hi%2C+I+need+help+with+my+Hygiene+Matic+reward"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="helpLink"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-                    </svg>
-                    WhatsApp Support
-                  </a>
-                  <a
-                    href="https://hygienematic.in/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="helpLink"
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <line x1="2" y1="12" x2="22" y2="12" />
-                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                    </svg>
-                    Visit Website
-                  </a>
-                </div>
-              </div>
             </div>
           </div>
-        )}
 
-        {/* ── CONFIRMATION DIALOG — Sol 1: "Are you sure?" gate ────────────── */}
-        {showConfirmDialog && (
-          <div className="popupOverlay" style={{ zIndex: 999999 }}>
-            <div className="confirmDialog">
-              <div className="confirmIconWrap">
-                <AlertCircle size={28} />
-              </div>
-              <h3 className="confirmTitle">Confirm Receipt</h3>
-              <p className="confirmMsg">
-                Press <strong>"Yes, I Got It"</strong> only after the shopkeeper
-                has handed you the reward.
-                <br />
-                <br />
-                <strong>This cannot be undone.</strong>
-              </p>
-              <div className="confirmBtns">
+          <div className="filterBar">
+            {(
+              ["all", "unused", "used", "printed", "unprinted"] as CodeFilter[]
+            ).map((f) => (
+              <button
+                key={f}
+                className={`filterBtn ${
+                  codeFilter === f ? "activeFilter" : ""
+                }`}
+                onClick={() => setCodeFilter(f)}
+              >
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+                {f === "all"
+                  ? ` (${totalCodes})`
+                  : f === "used"
+                  ? ` (${usedCodes})`
+                  : f === "unused"
+                  ? ` (${unusedCodes})`
+                  : f === "printed"
+                  ? ` (${printedCodes})`
+                  : ` (${totalCodes - printedCodes})`}
+              </button>
+            ))}
+          </div>
+
+          <input
+            type="text"
+            placeholder="Search codes..."
+            className="searchInput"
+            value={codeSearch}
+            onChange={(e) => setCodeSearch(e.target.value)}
+          />
+
+          <button className="exportBtn" onClick={exportCodesCSV}>
+            Download Codes CSV
+          </button>
+
+          {/* BULK ACTIONS BAR — Codes */}
+          {selectedCodes.length > 0 && (
+            <div className="bulkActionsBar">
+              <span className="bulkCount">{selectedCodes.length} selected</span>
+              <div className="bulkBtns">
                 <button
-                  className="confirmBtnCancel"
-                  onClick={() => setShowConfirmDialog(false)}
+                  className="bulkDeleteBtn"
+                  onClick={() =>
+                    openConfirm(
+                      "Delete Selected Codes",
+                      `Permanently delete ${selectedCodes.length} selected code(s)? This cannot be undone.`,
+                      deleteSelectedCodes
+                    )
+                  }
                 >
-                  <X size={15} /> Not Yet
+                  Delete Selected
                 </button>
-                <button className="confirmBtnOk" onClick={handleClaim}>
-                  <CheckCircle2 size={15} /> Yes, I Got It
+                <button
+                  className="bulkClearBtn"
+                  onClick={() => setSelectedCodes([])}
+                >
+                  Clear Selection
                 </button>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* ── EXPIRED POPUP ────────────────────────────────────────────────── */}
-        {showExpiredPopup && (
-          <div className="popupOverlay">
-            <div className="popup successPopup expiredPopup">
+          <div className="tableWrapper" style={{ marginTop: "14px" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: "40px" }}>
+                    <input
+                      type="checkbox"
+                      className="printCheckbox"
+                      checked={
+                        selectedCodes.length === filteredCodes.length &&
+                        filteredCodes.length > 0
+                      }
+                      onChange={() => toggleSelectAllCodes(filteredCodes)}
+                    />
+                  </th>
+                  <th>Code</th>
+                  <th>Status</th>
+                  <th>Printed</th>
+                  <th>Generated</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCodes.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      style={{
+                        textAlign: "center",
+                        padding: "30px",
+                        color: "#94a3b8",
+                      }}
+                    >
+                      No codes found
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCodes.map((c) => (
+                    <tr
+                      key={c.id}
+                      className={
+                        selectedCodes.includes(c.id) ? "selectedRow" : ""
+                      }
+                    >
+                      <td>
+                        <input
+                          type="checkbox"
+                          className="printCheckbox"
+                          checked={selectedCodes.includes(c.id)}
+                          onChange={() => toggleSelectCode(c.id)}
+                        />
+                      </td>
+                      <td>
+                        <code
+                          style={{
+                            fontFamily: "'DM Mono', monospace",
+                            fontSize: "13px",
+                            letterSpacing: "0.5px",
+                          }}
+                        >
+                          {c.code}
+                        </code>
+                      </td>
+                      <td>
+                        <span
+                          className={`statusBadge ${
+                            c.used ? "usedBadge" : "unusedBadge"
+                          }`}
+                        >
+                          {c.used ? "Used" : "Unused"}
+                        </span>
+                      </td>
+                      <td>
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            className="printCheckbox"
+                            checked={!!c.printed}
+                            onChange={() => togglePrinted(c.id, c.printed)}
+                          />
+                          <span className="printLabel">
+                            {c.printed ? "Printed" : "Not printed"}
+                          </span>
+                        </label>
+                      </td>
+                      <td
+                        style={{
+                          color: "var(--text-muted)",
+                          fontSize: "12.5px",
+                        }}
+                      >
+                        {c.createdAt
+                          ? new Date(c.createdAt).toLocaleDateString("en-IN")
+                          : "-"}
+                      </td>
+                      <td>
+                        <button
+                          className="deleteBtn"
+                          onClick={() => deleteCode(c.id)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── REWARDS CONFIG ────────────────────────────────────────────────────── */}
+      {activeTab === "rewards" && (
+        <div className="rewardConfigBox">
+          <h2>Rewards Configuration</h2>
+
+          <div className="configRow">
+            <label>Claim Window (hours)</label>
+            <div className="configControl">
               <button
-                className="popupClose"
-                onClick={() => setShowExpiredPopup(false)}
+                className="adjBtn"
+                onClick={() => setClaimHours(Math.max(1, claimHours - 1))}
               >
-                <X size={15} />
+                −
               </button>
-              <div className="successIconWrap expired">
-                <Clock size={28} />
-              </div>
-              <h2 className="expiredTitle">Reward Expired</h2>
-              <p className="expiredMsg">
-                You missed the reward claim window. Better luck next time!
-                Purchase a new combo pack to win again.
-              </p>
+              <span className="configVal">{claimHours}h</span>
+              <button
+                className="adjBtn"
+                onClick={() => setClaimHours(claimHours + 1)}
+              >
+                +
+              </button>
             </div>
           </div>
-        )}
 
-        {/* ── SUCCESS POPUP ────────────────────────────────────────────────── */}
-        {showSuccessPopup && (
-          <div className="popupOverlay">
-            <div className="popup successPopup">
-              <Confetti />
-              <button
-                className="popupClose"
-                onClick={() => setShowSuccessPopup(false)}
-              >
-                <X size={15} />
-              </button>
-              <div className="successIconWrap">
-                <CheckCircle2 size={28} />
+          <div className="rewardOptionsBox">
+            <h3>Reward Options</h3>
+            {rewardOptions.map((r, i) => (
+              <div className="rewardOptionRow" key={i}>
+                {editingReward === i ? (
+                  <>
+                    <input
+                      className="editRewardInput"
+                      value={editRewardVal}
+                      onChange={(e) => setEditRewardVal(e.target.value)}
+                    />
+                    <button
+                      className="saveRewardBtn"
+                      onClick={() => saveEditReward(i)}
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="cancelBtn"
+                      onClick={() => setEditingReward(null)}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="rewardOptionText">{r}</span>
+                    <button
+                      className="editRewardBtn"
+                      onClick={() => {
+                        setEditingReward(i);
+                        setEditRewardVal(r);
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="deleteBtn"
+                      onClick={() => deleteReward(i)}
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
               </div>
-              <h2 className="successTitle">Reward Received!</h2>
-              <h3 className="successRewardName">{claimedRewardName}</h3>
-              <p className="successNote">
-                Thank you for choosing Hygiene Matic. Enjoy your reward and keep
-                your home clean!
-              </p>
-              <button
-                className="closeSuccessBtn"
-                onClick={() => setShowSuccessPopup(false)}
-              >
-                Done
+            ))}
+            <div className="addRewardRow">
+              <input
+                className="addRewardInput"
+                placeholder="Add new reward option..."
+                value={newReward}
+                onChange={(e) => setNewReward(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addReward()}
+              />
+              <button className="addRewardBtn" onClick={addReward}>
+                Add
               </button>
             </div>
           </div>
-        )}
-      </div>
-    </>
+
+          <button
+            className="saveConfigBtn"
+            onClick={saveConfig}
+            disabled={configSaving}
+          >
+            {configSaving ? "Saving..." : "Save Configuration"}
+          </button>
+        </div>
+      )}
+
+      {/* ── CUSTOMERS ─────────────────────────────────────────────────────────── */}
+      {activeTab === "customers" && (
+        <div>
+          {activeTimers.length > 0 && (
+            <div className="activeTimersBox">
+              <h3>Customers with Active Reward Timers</h3>
+              {activeTimers.map((c) => {
+                const countdown = getCountdown(c);
+                return (
+                  <div
+                    key={c.id}
+                    className={`timerRow ${
+                      countdown.warning ? "timerWarning" : ""
+                    }`}
+                  >
+                    <div className="timerCustomer">
+                      <strong>{c.name}</strong>
+                      <span>{c.mobile}</span>
+                    </div>
+                    <div className="timerReward">
+                      {c.selectedReward || "Pending"}
+                    </div>
+                    <div
+                      className={`timerCountdown ${
+                        countdown.warning ? "warningText" : ""
+                      }`}
+                    >
+                      {countdown.text}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <input
+            type="text"
+            placeholder="Search by name or mobile..."
+            className="searchInput"
+            value={customerSearch}
+            onChange={(e) => setCustomerSearch(e.target.value)}
+          />
+
+          {customers.length === 0 ? (
+            <p className="loadingText">No customers yet</p>
+          ) : (
+            <div>
+              {/* BULK ACTIONS BAR — Customers */}
+              {selectedCustomers.length > 0 && (
+                <div className="bulkActionsBar">
+                  <span className="bulkCount">
+                    {selectedCustomers.length} selected
+                  </span>
+                  <div className="bulkBtns">
+                    <button
+                      className="bulkBlockBtn"
+                      onClick={() =>
+                        openConfirm(
+                          "Block Selected",
+                          `Block ${selectedCustomers.length} customer(s)? They won't be able to access the rewards platform.`,
+                          blockSelectedCustomers
+                        )
+                      }
+                    >
+                      Block Selected
+                    </button>
+                    <button
+                      className="bulkUnblockBtn"
+                      onClick={() =>
+                        openConfirm(
+                          "Unblock Selected",
+                          `Unblock ${selectedCustomers.length} customer(s)?`,
+                          unblockSelectedCustomers
+                        )
+                      }
+                    >
+                      Unblock Selected
+                    </button>
+                    <button
+                      className="bulkDeleteBtn"
+                      onClick={() =>
+                        openConfirm(
+                          "Delete Selected Customers",
+                          `Permanently delete ${selectedCustomers.length} customer record(s)? Their reward history will remain in the History tab.`,
+                          deleteSelectedCustomers
+                        )
+                      }
+                    >
+                      Delete Selected
+                    </button>
+                    <button
+                      className="bulkClearBtn"
+                      onClick={() => setSelectedCustomers([])}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="tableWrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ width: "40px" }}>
+                        <input
+                          type="checkbox"
+                          className="printCheckbox"
+                          checked={
+                            selectedCustomers.length ===
+                              filteredCustomers.length &&
+                            filteredCustomers.length > 0
+                          }
+                          onChange={() =>
+                            toggleSelectAllCustomers(filteredCustomers)
+                          }
+                        />
+                      </th>
+                      <th>Name</th>
+                      <th>Mobile</th>
+                      <th>Total Wins</th>
+                      <th>Last Reward</th>
+                      <th>Timer</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCustomers.map((c) => {
+                      // Show countdown for active timers AND expired ones from DB
+                      const countdown =
+                        (c.rewardUnlocked && c.claimStartTime) ||
+                        c.rewardExpired
+                          ? getCountdown(c)
+                          : null;
+                      const wins = getCustomerWins(c.mobile);
+                      return (
+                        <tr
+                          key={c.id}
+                          className={
+                            c.blocked
+                              ? "blockedRow"
+                              : c.rewardExpired
+                              ? "expiredRow"
+                              : selectedCustomers.includes(c.id)
+                              ? "selectedRow"
+                              : ""
+                          }
+                        >
+                          <td>
+                            <input
+                              type="checkbox"
+                              className="printCheckbox"
+                              checked={selectedCustomers.includes(c.id)}
+                              onChange={() => toggleSelectCustomer(c.id)}
+                            />
+                          </td>
+                          <td>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "7px",
+                              }}
+                            >
+                              {c.name}
+                              {c.blocked && (
+                                <span className="blockedBadge">Blocked</span>
+                              )}
+                            </div>
+                          </td>
+                          <td
+                            style={{
+                              fontFamily: "'DM Mono', monospace",
+                              fontSize: "13px",
+                            }}
+                          >
+                            {c.mobile}
+                          </td>
+                          <td>
+                            <span className="totalWonBadge">{wins}</span>
+                          </td>
+                          <td
+                            style={{
+                              fontSize: "12.5px",
+                              color: "var(--text-secondary)",
+                            }}
+                          >
+                            {c.lastRewardClaimed || "—"}
+                          </td>
+                          <td>
+                            {countdown && (
+                              <span
+                                className={`timerCell ${
+                                  countdown.warning ? "warningText" : ""
+                                } ${countdown.expired ? "expiredText" : ""}`}
+                              >
+                                {countdown.text}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            <div className="btnGroup">
+                              <button
+                                className="viewBtn"
+                                onClick={() =>
+                                  setHistoryModal({ open: true, customer: c })
+                                }
+                              >
+                                History
+                              </button>
+                              <button
+                                className="resetBtn"
+                                onClick={() =>
+                                  openConfirm(
+                                    "Reset Timer",
+                                    `Reset timer for ${c.name} (${c.mobile})? Clears current reward state. History is not affected.`,
+                                    () => resetTimer(c.mobile, c.name)
+                                  )
+                                }
+                              >
+                                Reset Timer
+                              </button>
+                              {c.blocked ? (
+                                <button
+                                  className="unblockBtn"
+                                  onClick={() =>
+                                    openConfirm(
+                                      "Unblock Customer",
+                                      `Allow ${c.name} (${c.mobile}) to access the rewards platform again?`,
+                                      () => unblockCustomer(c.mobile, c.name)
+                                    )
+                                  }
+                                >
+                                  Unblock
+                                </button>
+                              ) : (
+                                <button
+                                  className="blockBtn"
+                                  onClick={() =>
+                                    openConfirm(
+                                      "Block Customer",
+                                      `Block ${c.name} (${c.mobile})? They cannot access rewards until unblocked.`,
+                                      () => blockCustomer(c.mobile, c.name)
+                                    )
+                                  }
+                                >
+                                  Block
+                                </button>
+                              )}
+                              <button
+                                className="deleteBtn"
+                                onClick={() => deleteCustomer(c.mobile)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── HISTORY ───────────────────────────────────────────────────────────── */}
+      {activeTab === "history" && (
+        <div>
+          <div className="historyHeader">
+            <h2>Complete Reward History</h2>
+            <p>All rewards claimed by customers — permanently stored</p>
+          </div>
+
+          <div className="customerSummaryBox">
+            <h3>Top Customers by Rewards Won</h3>
+            <div className="tableWrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Mobile</th>
+                    <th>Total Won</th>
+                    <th>Last Reward</th>
+                    <th>Last Claimed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...customers]
+                    .filter((c) => getCustomerWins(c.mobile) > 0)
+                    .sort(
+                      (a, b) =>
+                        getCustomerWins(b.mobile) - getCustomerWins(a.mobile)
+                    )
+                    .map((c) => (
+                      <tr key={c.id}>
+                        <td>{c.name}</td>
+                        <td
+                          style={{
+                            fontFamily: "'DM Mono', monospace",
+                            fontSize: "13px",
+                          }}
+                        >
+                          {c.mobile}
+                        </td>
+                        <td>
+                          <span className="totalWonBadge">
+                            {getCustomerWins(c.mobile)}
+                          </span>
+                        </td>
+                        <td>{c.lastRewardClaimed || "—"}</td>
+                        <td
+                          style={{
+                            fontSize: "12.5px",
+                            color: "var(--text-muted)",
+                          }}
+                        >
+                          {c.lastClaimedAt
+                            ? new Date(c.lastClaimedAt).toLocaleString("en-IN")
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="historyLogBox">
+            <h3>All Claim Events</h3>
+            <div className="historyFilters">
+              <input
+                type="text"
+                placeholder="Search name, mobile or reward..."
+                className="searchInput"
+                style={{ marginBottom: 0 }}
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+              />
+              <select
+                className="daysSelect"
+                value={historyRewardFilter}
+                onChange={(e) => setHistoryRewardFilter(e.target.value)}
+              >
+                <option value="all">All Rewards</option>
+                {rewardOptions.map((r, i) => (
+                  <option key={i} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="daysSelect"
+                value={historyDateFilter}
+                onChange={(e) => setHistoryDateFilter(e.target.value)}
+              >
+                <option value="all">All Time</option>
+                <option value="today">Today</option>
+                <option value="week">Last 7 Days</option>
+                <option value="month">Last 30 Days</option>
+              </select>
+            </div>
+            <div className="historyActions">
+              <span className="historyCount">
+                {filteredHistory.length} records
+              </span>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  className="exportBtn"
+                  style={{ marginBottom: 0 }}
+                  onClick={exportHistoryCSV}
+                >
+                  Export CSV
+                </button>
+                {selectedHistory.length > 0 && (
+                  <button
+                    className="deleteBtn"
+                    style={{ padding: "9px 18px", fontSize: "13.5px" }}
+                    onClick={deleteHistoryRecords}
+                  >
+                    Delete Selected ({selectedHistory.length})
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="tableWrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: "40px" }}>
+                      <input
+                        type="checkbox"
+                        className="printCheckbox"
+                        checked={
+                          selectedHistory.length === filteredHistory.length &&
+                          filteredHistory.length > 0
+                        }
+                        onChange={toggleSelectAll}
+                      />
+                    </th>
+                    <th>Customer</th>
+                    <th>Mobile</th>
+                    <th>Reward Claimed</th>
+                    <th>Date & Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredHistory.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={5}
+                        style={{
+                          textAlign: "center",
+                          padding: "30px",
+                          color: "#94a3b8",
+                        }}
+                      >
+                        No records found
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredHistory.map((h) => (
+                      <tr
+                        key={h.id}
+                        className={
+                          selectedHistory.includes(h.id) ? "selectedRow" : ""
+                        }
+                      >
+                        <td>
+                          <input
+                            type="checkbox"
+                            className="printCheckbox"
+                            checked={selectedHistory.includes(h.id)}
+                            onChange={() => toggleSelectHistory(h.id)}
+                          />
+                        </td>
+                        <td>
+                          <strong>{h.customerName}</strong>
+                        </td>
+                        <td
+                          style={{
+                            fontFamily: "'DM Mono', monospace",
+                            fontSize: "13px",
+                          }}
+                        >
+                          {h.mobile}
+                        </td>
+                        <td>
+                          <span className="rewardClaimedBadge">{h.reward}</span>
+                        </td>
+                        <td
+                          style={{
+                            fontSize: "12.5px",
+                            color: "var(--text-muted)",
+                          }}
+                        >
+                          {h.claimedAtFormatted || "—"}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
