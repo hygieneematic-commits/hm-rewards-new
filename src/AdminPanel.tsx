@@ -248,6 +248,37 @@ export default function AdminPanel() {
     loadConfig();
   }, [isLoggedIn]);
 
+  // PERSIST EXPIRED TIMERS — runs whenever customers or now changes.
+  // If admin panel detects a timer has expired and DB still shows rewardUnlocked,
+  // write rewardExpired:true permanently so it survives page refreshes.
+  useEffect(() => {
+    if (!isLoggedIn || customers.length === 0) return;
+    customers.forEach(async (c) => {
+      if (
+        c.rewardUnlocked &&
+        !c.rewardClaimed &&
+        !c.rewardExpired &&
+        c.claimStartTime
+      ) {
+        const claimSeconds = claimHours * 3600;
+        const elapsed = Math.floor((now - c.claimStartTime) / 1000);
+        if (elapsed > claimSeconds) {
+          // Persist to Firestore — permanent, survives refreshes
+          try {
+            await updateDoc(doc(db, "customers", c.mobile), {
+              rewardUnlocked: false,
+              rewardExpired: true,
+              selectedReward: "",
+              claimStartTime: null,
+            });
+          } catch {
+            // silently ignore — will retry on next tick
+          }
+        }
+      }
+    });
+  }, [customers, now, claimHours, isLoggedIn]);
+
   // FILTER CODES
   useEffect(() => {
     let filtered = [...codes];
@@ -275,10 +306,15 @@ export default function AdminPanel() {
 
   // ── HELPERS ─────────────────────────────────────────────────────────────────
 
-  // Countdown timer display
-  const getCountdown = (claimStartTime: number) => {
+  // Countdown timer display — also checks DB rewardExpired flag
+  const getCountdown = (c: any) => {
+    // If DB already marked expired — show permanently
+    if (c.rewardExpired && !c.rewardClaimed) {
+      return { text: "EXPIRED", expired: true, warning: false };
+    }
+    if (!c.rewardUnlocked || !c.claimStartTime) return null;
     const claimSeconds = claimHours * 3600;
-    const elapsed = Math.floor((now - claimStartTime) / 1000);
+    const elapsed = Math.floor((now - c.claimStartTime) / 1000);
     const left = claimSeconds - elapsed;
     if (left <= 0) return { text: "EXPIRED", expired: true, warning: false };
     const h = Math.floor(left / 3600);
@@ -332,17 +368,13 @@ export default function AdminPanel() {
     showToast("Code deleted");
   };
 
-  // RESET TIMER — clears only timer/reward state, keeps history intact
+  // RESET TIMER — restarts the countdown from now. Touches ONLY claimStartTime.
+  // All customer data, reward history, claimed rewards, win count — untouched.
   const resetTimer = async (mobile: string, name: string) => {
     try {
       await updateDoc(doc(db, "customers", mobile), {
-        rewardUnlocked: false,
-        rewardClaimed: false,
-        rewardExpired: false,
-        selectedReward: "",
-        claimStartTime: null,
+        claimStartTime: Date.now(), // restart countdown from this moment
       });
-      // Optional admin activity log
       await addDoc(collection(db, "adminLogs"), {
         action: "RESET_TIMER",
         customerMobile: mobile,
@@ -791,7 +823,7 @@ export default function AdminPanel() {
             <div className="activeTimersBox">
               <h3>Live Reward Timers</h3>
               {activeTimers.map((c) => {
-                const countdown = getCountdown(c.claimStartTime);
+                const countdown = getCountdown(c);
                 return (
                   <div
                     key={c.id}
@@ -1159,7 +1191,7 @@ export default function AdminPanel() {
             <div className="activeTimersBox">
               <h3>Customers with Active Reward Timers</h3>
               {activeTimers.map((c) => {
-                const countdown = getCountdown(c.claimStartTime);
+                const countdown = getCountdown(c);
                 return (
                   <div
                     key={c.id}
@@ -1280,9 +1312,11 @@ export default function AdminPanel() {
                   </thead>
                   <tbody>
                     {filteredCustomers.map((c) => {
+                      // Show countdown for active timers AND expired ones from DB
                       const countdown =
-                        c.rewardUnlocked && c.claimStartTime
-                          ? getCountdown(c.claimStartTime)
+                        (c.rewardUnlocked && c.claimStartTime) ||
+                        c.rewardExpired
+                          ? getCountdown(c)
                           : null;
                       const wins = getCustomerWins(c.mobile);
                       return (
@@ -1291,6 +1325,8 @@ export default function AdminPanel() {
                           className={
                             c.blocked
                               ? "blockedRow"
+                              : c.rewardExpired
+                              ? "expiredRow"
                               : selectedCustomers.includes(c.id)
                               ? "selectedRow"
                               : ""
