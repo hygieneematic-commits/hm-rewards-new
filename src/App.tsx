@@ -74,6 +74,7 @@ export default function App() {
   const [showScratchCard, setShowScratchCard] = useState(false);
   const [scratchReward, setScratchReward] = useState("");
   const [scratched, setScratched] = useState(false);
+  const [revealed, setRevealed] = useState(false);
   const [scratchPercent, setScratchPercent] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawing = useRef(false);
@@ -320,14 +321,23 @@ export default function App() {
     }
     const percent = (transparent / (canvas.width * canvas.height)) * 100;
     setScratchPercent(percent);
-    if (percent > 50 && !scratched) {
+    // Trigger at 1% — reveals on first scratch gesture
+    if (percent > 1 && !scratched) {
       setScratched(true);
+      // Instantly wipe remaining canvas so reward shows fully
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      setScratchPercent(100);
+      // Hide canvas element entirely so reward layer is crystal clear
+      setRevealed(true);
+      // Hold on revealed reward for ~2.8s then move to countdown popup
       setTimeout(() => {
         setShowScratchCard(false);
+        setRevealed(false);
         setShowCountdownPopup(true);
         setClaimStarted(true);
         setTimeLeft(claimSeconds);
-      }, 800);
+      }, 2800);
     }
   };
 
@@ -401,6 +411,7 @@ export default function App() {
 
       setCode("");
       setScratched(false);
+      setRevealed(false);
       setScratchPercent(0);
       setShowScratchCard(true);
     } catch (err) {
@@ -553,7 +564,7 @@ export default function App() {
             </div>
             <div>
               <h3>Enter Product Code</h3>
-              <span>Example: HM82341-K7X/ FL19482-Q2W</span>
+              <span>Example: DW48291 / FL19482</span>
             </div>
           </div>
           <div className="inputGroup">
@@ -833,7 +844,11 @@ export default function App() {
                 <div className="scratchGlowRing" />
                 <div className="scratchWrapper">
                   {/* Reward behind layer */}
-                  <div className="scratchRewardBehind">
+                  <div
+                    className={`scratchRewardBehind ${
+                      revealed ? "revealed" : ""
+                    }`}
+                  >
                     <div className="scratchRewardBehindBg" />
                     <div className="scratchRewardBehindContent">
                       <div className="scratchGiftCircle">
@@ -848,7 +863,7 @@ export default function App() {
                     ref={canvasRef}
                     width={300}
                     height={170}
-                    className="scratchCanvas"
+                    className={`scratchCanvas ${revealed ? "revealed" : ""}`}
                     onMouseDown={() => {
                       isDrawing.current = true;
                     }}
@@ -883,7 +898,11 @@ export default function App() {
                   />
                 </div>
                 <p className="scratchHint">
-                  {scratched ? (
+                  {revealed ? (
+                    <span className="scratchRevealMsg">
+                      <CheckCircle2 size={14} /> Your reward is revealed!
+                    </span>
+                  ) : scratched ? (
                     <span className="scratchRevealMsg">
                       <CheckCircle2 size={14} /> Reward Revealed!
                     </span>
@@ -975,7 +994,7 @@ export default function App() {
                 </p>
                 <div className="helpLinks">
                   <a
-                    href="https://wa.me/919007797751?text=Hi%2C+I+need+help+with+my+Hygiene+Matic+reward"
+                    href="https://wa.me/919999999999?text=Hi%2C+I+need+help+with+my+Hygiene+Matic+reward"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="helpLink"
