@@ -1509,3 +1509,11 @@ tr:hover td {
     text-align: center;
   }
 }
+
+/* â”€â”€ Expired row â€” subtle amber tint â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.expiredRow td {
+  background: #fffbeb !important;
+}
+.expiredRow:hover td {
+  background: #fef3c7 !important;
+}
